@@ -97,8 +97,8 @@ window.stark-spotify-window {
 
 /* Left Showcase Column */
 .stark-showcase-left {
-    min-width: 330px;
-    margin-right: 36px;
+    min-width: 320px;
+    margin-right: 20px;
 }
 
 /* Album Art Showcase Card */

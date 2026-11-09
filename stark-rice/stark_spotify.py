@@ -441,15 +441,20 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
         pctx = self.get_pango_context()
 
+        # Dynamic responsive layout - centered with slight left bias
+        shift_x = -16.0
+
         # Empty / Instrumental State
         if not self.kinetic_lines and not self.raw_lines:
             layout = Pango.Layout.new(pctx)
             desc = Pango.FontDescription("Google Sans Flex 18")
             desc.set_weight(Pango.Weight.BOLD)
             layout.set_font_description(desc)
+            layout.set_alignment(Pango.Alignment.CENTER)
+            layout.set_width(int((w - 40.0) * Pango.SCALE))
             layout.set_text("󰎆  Instrumental or lyrics unavailable", -1)
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.40)
-            cr.move_to(28, h * 0.44)
+            cr.move_to(20.0 + shift_x, h * 0.44)
             PangoCairo.show_layout(cr, layout)
             return False
 
@@ -460,13 +465,14 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             layout = Pango.Layout.new(pctx)
             desc = Pango.FontDescription("Google Sans Flex 18")
             layout.set_font_description(desc)
-            layout.set_width(int((w - 56) * Pango.SCALE))
+            layout.set_alignment(Pango.Alignment.CENTER)
+            layout.set_width(int((w - 40.0) * Pango.SCALE))
             layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             y = 40.0
             for _, txt in self.raw_lines[:15]:
                 layout.set_text(txt, -1)
                 cr.set_source_rgba(1.0, 1.0, 1.0, 0.65)
-                cr.move_to(28, y)
+                cr.move_to(20.0 + shift_x, y)
                 PangoCairo.show_layout(cr, layout)
                 _, lh = layout.get_pixel_size()
                 y += lh + 18.0
@@ -482,7 +488,6 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         # ---------------------------------------------------------------------
         # Dynamic Responsive Font Sizing & Typography Layout
         # ---------------------------------------------------------------------
-        base_x = 28.0
         if w < 440:
             hero_font_size = 22
         elif w < 580:
@@ -505,8 +510,8 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             pw, ph = hero_layout.get_pixel_size()
             word_metrics.append((w_obj, pw, ph))
 
-        # Dynamic row packing
-        max_row_w = max(180, w - base_x - 36.0)
+        # Dynamic row packing (centered)
+        max_row_w = max(180, w - 48.0)
         line_rows = []
         cur_row = []
         cur_row_w = 0
@@ -534,7 +539,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         hero_end_y = hero_start_y + total_hero_h
 
         # ---------------------------------------------------------------------
-        # Context Framing: Previous Line (Guaranteed clearance ABOVE hero)
+        # Context Framing: Previous Line (Centered, clearance ABOVE hero)
         # ---------------------------------------------------------------------
         if active_idx > 0:
             prev_line = self.kinetic_lines[active_idx - 1]
@@ -542,7 +547,8 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             prev_desc = Pango.FontDescription("Google Sans Flex 17")
             prev_desc.set_weight(Pango.Weight.BOLD)
             prev_layout.set_font_description(prev_desc)
-            prev_layout.set_width(int((w - base_x - 36.0) * Pango.SCALE))
+            prev_layout.set_alignment(Pango.Alignment.CENTER)
+            prev_layout.set_width(int((w - 40.0) * Pango.SCALE))
             prev_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             prev_layout.set_text(prev_line['text'], -1)
             _, prev_h = prev_layout.get_pixel_size()
@@ -551,14 +557,15 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             if prev_y > 10:
                 prev_alpha = min(0.42, max(0.06, (prev_y - 10.0) / 40.0 * 0.42))
                 cr.set_source_rgba(1.0, 1.0, 1.0, prev_alpha)
-                cr.move_to(base_x, prev_y)
+                cr.move_to(20.0 + shift_x, prev_y)
                 PangoCairo.show_layout(cr, prev_layout)
 
         # ---------------------------------------------------------------------
-        # ACTIVE HERO WORDS (Kinetic Edit Pop & Soft Ambient Glow)
+        # ACTIVE HERO WORDS (Centered rows, kinetic pop, zero box)
         # ---------------------------------------------------------------------
         for r_idx, (row_items, row_w) in enumerate(line_rows):
-            x_cursor = base_x
+            row_start_x = max(10.0, ((w - row_w) / 2.0) + shift_x)
+            x_cursor = row_start_x
             y_cursor = hero_start_y + (r_idx * row_h)
 
             for w_obj, pw, ph in row_items:
@@ -572,26 +579,17 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
                 if cur_t < w_start:
                     # Upcoming Word (Ghosted preview)
-                    cr.set_source_rgba(1.0, 1.0, 1.0, 0.32)
+                    cr.set_source_rgba(1.0, 1.0, 1.0, 0.30)
                     cr.move_to(x_cursor, y_cursor)
                     PangoCairo.show_layout(cr, hero_layout)
                 elif w_start <= cur_t < w_end:
-                    # ACTIVE WORD (Kinetic Pop, Soft Artwork Bloom Halo)
+                    # ACTIVE WORD (Kinetic Pop Punch & Chromatic Strike)
                     p = (cur_t - w_start) / w_dur
                     pop = max(0.0, 1.0 - (p * 3.0))
                     scale = 1.0 + (0.16 * pop)
                     chroma = (2.2 if wps >= 4.0 else 1.5) * pop
 
-                    # Soft Ambient Glow Halo behind Active Word
-                    glow_r = max(pw, ph) * 1.35
-                    radial = cairo.RadialGradient(cx, cy, 3, cx, cy, glow_r)
-                    radial.add_color_stop_rgba(0.0, r_acc, g_acc, b_acc, 0.42 * (1.0 - p * 0.35))
-                    radial.add_color_stop_rgba(1.0, r_acc, g_acc, b_acc, 0.0)
-                    cr.set_source(radial)
-                    cr.arc(cx, cy, glow_r, 0, 2 * math.pi)
-                    cr.fill()
-
-                    # Transform with scale
+                    # Transform with spring scale
                     cr.save()
                     cr.translate(cx, cy)
                     cr.scale(scale, scale)
@@ -621,7 +619,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 x_cursor += pw + space_w
 
         # ---------------------------------------------------------------------
-        # Context Framing: Next Line (Guaranteed clearance BELOW hero)
+        # Context Framing: Next Line (Centered, clearance BELOW hero)
         # ---------------------------------------------------------------------
         if active_idx + 1 < len(self.kinetic_lines):
             next_line = self.kinetic_lines[active_idx + 1]
@@ -629,7 +627,8 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             next_desc = Pango.FontDescription("Google Sans Flex 17")
             next_desc.set_weight(Pango.Weight.BOLD)
             next_layout.set_font_description(next_desc)
-            next_layout.set_width(int((w - base_x - 36.0) * Pango.SCALE))
+            next_layout.set_alignment(Pango.Alignment.CENTER)
+            next_layout.set_width(int((w - 40.0) * Pango.SCALE))
             next_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             next_layout.set_text(next_line['text'], -1)
             
@@ -637,18 +636,10 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             if next_y < h - 10:
                 next_alpha = min(0.32, max(0.06, (h - 10.0 - next_y) / 40.0 * 0.32))
                 cr.set_source_rgba(1.0, 1.0, 1.0, next_alpha)
-                cr.move_to(base_x, next_y)
+                cr.move_to(20.0 + shift_x, next_y)
                 PangoCairo.show_layout(cr, next_layout)
 
         return False
-
-    def _round_rect(self, cr, x, y, width, height, radius):
-        cr.new_sub_path()
-        cr.arc(x + width - radius, y + radius, radius, -math.pi / 2, 0)
-        cr.arc(x + width - radius, y + height - radius, radius, 0, math.pi / 2)
-        cr.arc(x + radius, y + height - radius, radius, math.pi / 2, math.pi)
-        cr.arc(x + radius, y + radius, radius, math.pi, 3 * math.pi / 2)
-        cr.close_path()
 
 
 
