@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.bak*
+
+# Sensitive Authentication & Session Secrets
+*auth*.json
+*token*.json
+*cookies*.txt
+youtube_cookies.txt
+spotify_auth.json
+lastfm_auth.json
+ytmusic_auth.json
+
+# Sensitive Personal Location & History Configs
+weather_config.json
+weather_cache.json
+listening_history.json
+music_state.json
+recommendation_queue.json
+sunset_state.json
+
+# Runtime Caches & Dynamic Assets
+assets/lyrics_cache/
+assets/album_thumbs/
+lyrics_cache/
+album_thumbs/
+*.sock
+*.log
+.env
+.env.*
+
+# Temporary / OS files
+.DS_Store
+Thumbs.db

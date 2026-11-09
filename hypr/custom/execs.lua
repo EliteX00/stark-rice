@@ -1,0 +1,5 @@
+-- Stark Rice Autostart Configuration (Bars, Widgets & Wallpaper)
+hl.on("hyprland.start", function ()
+    hl.exec_cmd("/home/elitex/.local/bin/swaybg -i /home/elitex/.config/stark-rice/wallpaper.png -m fill")
+    hl.exec_cmd("$HOME/.config/stark-rice/launch.sh")
+end)

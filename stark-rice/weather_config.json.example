@@ -1,0 +1,11 @@
+{
+  "provider": "accuweather",
+  "api_key": "",
+  "location_key": "",
+  "city": "City",
+  "admin": "Region",
+  "country": "Country",
+  "lat": 0.0,
+  "lon": 0.0,
+  "cache_ttl": 1800
+}
