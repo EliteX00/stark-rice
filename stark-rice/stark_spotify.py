@@ -525,10 +525,13 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         # Responsive font sizing
         if w < 440:
             hero_font_size = 22
+            base_x = 56.0
         elif w < 580:
             hero_font_size = 26
+            base_x = 72.0
         else:
             hero_font_size = 30 if len(active_line["text"]) < 50 else 25
+            base_x = max(80.0, min(140.0, (w - 380) / 2.0))
 
         hero_layout = Pango.Layout.new(pctx)
         hero_desc = Pango.FontDescription(f"Google Sans Flex {hero_font_size}")
@@ -546,7 +549,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             word_metrics.append((w_obj, pw, ph))
 
         # Dynamic row packing
-        max_row_w = max(180, w - 72)
+        max_row_w = max(180, w - base_x - 48.0)
         line_rows = []
         cur_row = []
         cur_row_w = 0
@@ -582,7 +585,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             prev_desc = Pango.FontDescription("Google Sans Flex 16")
             prev_desc.set_weight(Pango.Weight.BOLD)
             prev_layout.set_font_description(prev_desc)
-            prev_layout.set_width(int((w - 72) * Pango.SCALE))
+            prev_layout.set_width(int((w - base_x - 48.0) * Pango.SCALE))
             prev_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             prev_layout.set_text(f"󰒮  {prev_line['text']}", -1)
             _, prev_h = prev_layout.get_pixel_size()
@@ -591,12 +594,12 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             if prev_y > 10:
                 prev_alpha = min(0.35, max(0.05, (prev_y - 15.0) / 40.0 * 0.35))
                 cr.set_source_rgba(1.0, 1.0, 1.0, prev_alpha)
-                cr.move_to(36, prev_y)
+                cr.move_to(base_x, prev_y)
                 PangoCairo.show_layout(cr, prev_layout)
 
         # Draw Active Hero Words
         for r_idx, (row_items, row_w) in enumerate(line_rows):
-            x_cursor = 36.0
+            x_cursor = base_x
             y_cursor = hero_start_y + (r_idx * row_h)
 
             for w_obj, pw, ph in row_items:
@@ -614,7 +617,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                     cr.move_to(x_cursor, y_cursor)
                     PangoCairo.show_layout(cr, hero_layout)
                 elif w_start <= cur_t < w_end:
-                    # ACTIVE WORD (Kinetic Pop, Chromatic Aberration, Glow Aura)
+                    # ACTIVE WORD (Kinetic Pop, Chromatic Aberration, Unnatural Additive Glow)
                     p = (cur_t - w_start) / w_dur
                     pop = max(0.0, 1.0 - (p * 3.0))
                     scale = 1.0 + (0.24 * pop)
@@ -626,14 +629,39 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         self.active_word_key = word_key
                         self._trigger_shockwave(cx, cy, max_r=max(45, int(pw * 0.9)))
 
-                    # Ambient Glow Bloom behind Active Word
-                    glow_r = max(pw, ph) * 1.3
-                    radial = cairo.RadialGradient(cx, cy, 4, cx, cy, glow_r)
-                    radial.add_color_stop_rgba(0.0, r_acc, g_acc, b_acc, 0.52 * (1.0 - p * 0.4))
+                    # ---------------------------------------------------------
+                    # UNNATURAL SURREAL EDIT GLOW (Additive Anamorphic Bloom)
+                    # ---------------------------------------------------------
+                    cr.save()
+                    cr.set_operator(cairo.OPERATOR_ADD)
+
+                    # Anamorphic Horizontal Laser Flare
+                    flare_w = max(160.0, pw * 2.8)
+                    flare_h = max(22.0, ph * 0.55)
+                    cr.save()
+                    cr.translate(cx, cy)
+                    cr.scale(flare_w / 60.0, flare_h / 60.0)
+                    flare = cairo.RadialGradient(0, 0, 2, 0, 0, 60)
+                    flare.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.85 * (1.0 - p * 0.35))
+                    flare.add_color_stop_rgba(0.25, r_acc, g_acc, b_acc, 0.75 * (1.0 - p * 0.35))
+                    flare.add_color_stop_rgba(0.70, r_acc * 0.8, g_acc * 0.6, b_acc, 0.30 * (1.0 - p * 0.45))
+                    flare.add_color_stop_rgba(1.0, r_acc, g_acc, b_acc, 0.0)
+                    cr.set_source(flare)
+                    cr.arc(0, 0, 60, 0, 2 * math.pi)
+                    cr.fill()
+                    cr.restore()
+
+                    # Searing Core Bloom
+                    glow_r = max(55.0, max(pw, ph) * 1.4)
+                    radial = cairo.RadialGradient(cx, cy, 3, cx, cy, glow_r)
+                    radial.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.92 * (1.0 - p * 0.35))
+                    radial.add_color_stop_rgba(0.20, r_acc, g_acc, b_acc, 0.85 * (1.0 - p * 0.35))
+                    radial.add_color_stop_rgba(0.55, r_acc, g_acc, b_acc, 0.40 * (1.0 - p * 0.45))
                     radial.add_color_stop_rgba(1.0, r_acc, g_acc, b_acc, 0.0)
                     cr.set_source(radial)
                     cr.arc(cx, cy, glow_r, 0, 2 * math.pi)
                     cr.fill()
+                    cr.restore()
 
                     # Transform with scale
                     cr.save()
@@ -675,7 +703,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             next_desc = Pango.FontDescription("Google Sans Flex 16")
             next_desc.set_weight(Pango.Weight.BOLD)
             next_layout.set_font_description(next_desc)
-            next_layout.set_width(int((w - 72) * Pango.SCALE))
+            next_layout.set_width(int((w - base_x - 48.0) * Pango.SCALE))
             next_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             next_layout.set_text(f"󰒭  {next_line['text']}", -1)
             
@@ -683,7 +711,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             if next_y < h - 10:
                 next_alpha = min(0.28, max(0.05, (h - 15.0 - next_y) / 40.0 * 0.28))
                 cr.set_source_rgba(1.0, 1.0, 1.0, next_alpha)
-                cr.move_to(36, next_y)
+                cr.move_to(base_x, next_y)
                 PangoCairo.show_layout(cr, next_layout)
 
         # ---------------------------------------------------------------------
