@@ -439,15 +439,6 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             cr.arc(px, py, p["r"], 0, 2 * math.pi)
             cr.fill()
 
-        # ---------------------------------------------------------------------
-        # 2. Expanding Shockwave Ambient Rings
-        # ---------------------------------------------------------------------
-        for sw in self.shockwaves:
-            cr.set_line_width(2.8)
-            cr.set_source_rgba(r_acc, g_acc, b_acc, sw["alpha"] * 0.35)
-            cr.arc(sw["x"], sw["y"], sw["r"], 0, 2 * math.pi)
-            cr.stroke()
-
         pctx = self.get_pango_context()
 
         # Empty / Instrumental State
@@ -458,7 +449,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             layout.set_font_description(desc)
             layout.set_text("󰎆  Instrumental or lyrics unavailable", -1)
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.40)
-            cr.move_to(36, h * 0.44)
+            cr.move_to(28, h * 0.44)
             PangoCairo.show_layout(cr, layout)
             return False
 
@@ -469,13 +460,13 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             layout = Pango.Layout.new(pctx)
             desc = Pango.FontDescription("Google Sans Flex 18")
             layout.set_font_description(desc)
-            layout.set_width(int((w - 72) * Pango.SCALE))
+            layout.set_width(int((w - 56) * Pango.SCALE))
             layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             y = 40.0
             for _, txt in self.raw_lines[:15]:
                 layout.set_text(txt, -1)
                 cr.set_source_rgba(1.0, 1.0, 1.0, 0.65)
-                cr.move_to(36, y)
+                cr.move_to(28, y)
                 PangoCairo.show_layout(cr, layout)
                 _, lh = layout.get_pixel_size()
                 y += lh + 18.0
@@ -489,49 +480,15 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         wps = active_line.get("wps", 2.0)
 
         # ---------------------------------------------------------------------
-        # 3. Dynamic Energy / Tempo HUD Badge
+        # Dynamic Responsive Font Sizing & Typography Layout
         # ---------------------------------------------------------------------
-        badge_layout = Pango.Layout.new(pctx)
-        badge_desc = Pango.FontDescription("JetBrainsMono Nerd Font 10")
-        badge_desc.set_weight(Pango.Weight.BOLD)
-        badge_layout.set_font_description(badge_desc)
-
-        if wps >= 4.0:
-            badge_text = f"󱐋 SPEED RAP • {wps:.1f} WPS"
-            badge_color = (0.2, 0.95, 1.0)
-        elif wps >= 2.2:
-            badge_text = f"󰓎 KINETIC FLOW • {wps:.1f} WPS"
-            badge_color = (r_acc, g_acc, b_acc)
-        else:
-            badge_text = "✦ CINEMATIC AURA"
-            badge_color = (0.9, 0.75, 1.0)
-
-        badge_layout.set_text(badge_text, -1)
-        bw, bh = badge_layout.get_pixel_size()
-        bx, by = 36.0, 28.0
-
-        # Badge Frosted Pill
-        cr.set_source_rgba(badge_color[0], badge_color[1], badge_color[2], 0.16)
-        self._round_rect(cr, bx - 10, by - 4, bw + 20, bh + 8, 8)
-        cr.fill()
-
-        cr.set_source_rgba(badge_color[0], badge_color[1], badge_color[2], 0.95)
-        cr.move_to(bx, by)
-        PangoCairo.show_layout(cr, badge_layout)
-
-        # ---------------------------------------------------------------------
-        # 4. HERO ACTIVE COMPOSITION (Word-by-Word Kinetic Edit)
-        # ---------------------------------------------------------------------
-        # Responsive font sizing
+        base_x = 28.0
         if w < 440:
             hero_font_size = 22
-            base_x = 56.0
         elif w < 580:
-            hero_font_size = 26
-            base_x = 72.0
+            hero_font_size = 25
         else:
-            hero_font_size = 30 if len(active_line["text"]) < 50 else 25
-            base_x = max(80.0, min(140.0, (w - 380) / 2.0))
+            hero_font_size = 28 if len(active_line["text"]) < 50 else 24
 
         hero_layout = Pango.Layout.new(pctx)
         hero_desc = Pango.FontDescription(f"Google Sans Flex {hero_font_size}")
@@ -549,7 +506,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             word_metrics.append((w_obj, pw, ph))
 
         # Dynamic row packing
-        max_row_w = max(180, w - base_x - 48.0)
+        max_row_w = max(180, w - base_x - 36.0)
         line_rows = []
         cur_row = []
         cur_row_w = 0
@@ -571,33 +528,35 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         row_h = float(hero_font_size * 1.34)
         total_hero_h = len(line_rows) * row_h
         center_y = h * 0.46
-        line_offset = (self.smooth_line_idx - float(active_idx)) * 48.0
+        line_offset = (self.smooth_line_idx - float(active_idx)) * 44.0
 
         hero_start_y = center_y - (total_hero_h / 2.0) - line_offset
         hero_end_y = hero_start_y + total_hero_h
 
         # ---------------------------------------------------------------------
-        # 5. Context Framing: Previous Line (Guaranteed clearance ABOVE hero)
+        # Context Framing: Previous Line (Guaranteed clearance ABOVE hero)
         # ---------------------------------------------------------------------
         if active_idx > 0:
             prev_line = self.kinetic_lines[active_idx - 1]
             prev_layout = Pango.Layout.new(pctx)
-            prev_desc = Pango.FontDescription("Google Sans Flex 16")
+            prev_desc = Pango.FontDescription("Google Sans Flex 17")
             prev_desc.set_weight(Pango.Weight.BOLD)
             prev_layout.set_font_description(prev_desc)
-            prev_layout.set_width(int((w - base_x - 48.0) * Pango.SCALE))
+            prev_layout.set_width(int((w - base_x - 36.0) * Pango.SCALE))
             prev_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-            prev_layout.set_text(f"󰒮  {prev_line['text']}", -1)
+            prev_layout.set_text(prev_line['text'], -1)
             _, prev_h = prev_layout.get_pixel_size()
             
-            prev_y = hero_start_y - prev_h - 26.0
+            prev_y = hero_start_y - prev_h - 22.0
             if prev_y > 10:
-                prev_alpha = min(0.35, max(0.05, (prev_y - 15.0) / 40.0 * 0.35))
+                prev_alpha = min(0.42, max(0.06, (prev_y - 10.0) / 40.0 * 0.42))
                 cr.set_source_rgba(1.0, 1.0, 1.0, prev_alpha)
                 cr.move_to(base_x, prev_y)
                 PangoCairo.show_layout(cr, prev_layout)
 
-        # Draw Active Hero Words
+        # ---------------------------------------------------------------------
+        # ACTIVE HERO WORDS (Kinetic Edit Pop & Soft Ambient Glow)
+        # ---------------------------------------------------------------------
         for r_idx, (row_items, row_w) in enumerate(line_rows):
             x_cursor = base_x
             y_cursor = hero_start_y + (r_idx * row_h)
@@ -613,55 +572,24 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
                 if cur_t < w_start:
                     # Upcoming Word (Ghosted preview)
-                    cr.set_source_rgba(1.0, 1.0, 1.0, 0.20)
+                    cr.set_source_rgba(1.0, 1.0, 1.0, 0.32)
                     cr.move_to(x_cursor, y_cursor)
                     PangoCairo.show_layout(cr, hero_layout)
                 elif w_start <= cur_t < w_end:
-                    # ACTIVE WORD (Kinetic Pop, Chromatic Aberration, Unnatural Additive Glow)
+                    # ACTIVE WORD (Kinetic Pop, Soft Artwork Bloom Halo)
                     p = (cur_t - w_start) / w_dur
                     pop = max(0.0, 1.0 - (p * 3.0))
-                    scale = 1.0 + (0.24 * pop)
-                    chroma = (3.8 if wps >= 4.0 else 2.4) * pop
+                    scale = 1.0 + (0.16 * pop)
+                    chroma = (2.2 if wps >= 4.0 else 1.5) * pop
 
-                    # Trigger Shockwave once on word impact
-                    word_key = f"{active_idx}_{w_obj['text']}"
-                    if self.active_word_key != word_key:
-                        self.active_word_key = word_key
-                        self._trigger_shockwave(cx, cy, max_r=max(45, int(pw * 0.9)))
-
-                    # ---------------------------------------------------------
-                    # UNNATURAL SURREAL EDIT GLOW (Additive Anamorphic Bloom)
-                    # ---------------------------------------------------------
-                    cr.save()
-                    cr.set_operator(cairo.OPERATOR_ADD)
-
-                    # Anamorphic Horizontal Laser Flare
-                    flare_w = max(160.0, pw * 2.8)
-                    flare_h = max(22.0, ph * 0.55)
-                    cr.save()
-                    cr.translate(cx, cy)
-                    cr.scale(flare_w / 60.0, flare_h / 60.0)
-                    flare = cairo.RadialGradient(0, 0, 2, 0, 0, 60)
-                    flare.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.85 * (1.0 - p * 0.35))
-                    flare.add_color_stop_rgba(0.25, r_acc, g_acc, b_acc, 0.75 * (1.0 - p * 0.35))
-                    flare.add_color_stop_rgba(0.70, r_acc * 0.8, g_acc * 0.6, b_acc, 0.30 * (1.0 - p * 0.45))
-                    flare.add_color_stop_rgba(1.0, r_acc, g_acc, b_acc, 0.0)
-                    cr.set_source(flare)
-                    cr.arc(0, 0, 60, 0, 2 * math.pi)
-                    cr.fill()
-                    cr.restore()
-
-                    # Searing Core Bloom
-                    glow_r = max(55.0, max(pw, ph) * 1.4)
+                    # Soft Ambient Glow Halo behind Active Word
+                    glow_r = max(pw, ph) * 1.35
                     radial = cairo.RadialGradient(cx, cy, 3, cx, cy, glow_r)
-                    radial.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.92 * (1.0 - p * 0.35))
-                    radial.add_color_stop_rgba(0.20, r_acc, g_acc, b_acc, 0.85 * (1.0 - p * 0.35))
-                    radial.add_color_stop_rgba(0.55, r_acc, g_acc, b_acc, 0.40 * (1.0 - p * 0.45))
+                    radial.add_color_stop_rgba(0.0, r_acc, g_acc, b_acc, 0.42 * (1.0 - p * 0.35))
                     radial.add_color_stop_rgba(1.0, r_acc, g_acc, b_acc, 0.0)
                     cr.set_source(radial)
                     cr.arc(cx, cy, glow_r, 0, 2 * math.pi)
                     cr.fill()
-                    cr.restore()
 
                     # Transform with scale
                     cr.save()
@@ -669,15 +597,13 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                     cr.scale(scale, scale)
                     cr.translate(-cx, -cy)
 
-                    # Chromatic Glitch Split
-                    if chroma > 0.4:
-                        # Cyan pass
-                        cr.set_source_rgba(0.0, 0.9, 1.0, 0.50 * pop)
+                    # Subtle Chromatic Glitch Split on impact
+                    if chroma > 0.3:
+                        cr.set_source_rgba(0.0, 0.9, 1.0, 0.40 * pop)
                         cr.move_to(x_cursor - chroma, y_cursor)
                         PangoCairo.show_layout(cr, hero_layout)
 
-                        # Accent/Magenta pass
-                        cr.set_source_rgba(r_acc, g_acc, b_acc, 0.65 * pop)
+                        cr.set_source_rgba(r_acc, g_acc, b_acc, 0.50 * pop)
                         cr.move_to(x_cursor + chroma, y_cursor)
                         PangoCairo.show_layout(cr, hero_layout)
 
@@ -695,41 +621,24 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 x_cursor += pw + space_w
 
         # ---------------------------------------------------------------------
-        # 6. Context Framing: Next Line (Guaranteed clearance BELOW hero)
+        # Context Framing: Next Line (Guaranteed clearance BELOW hero)
         # ---------------------------------------------------------------------
         if active_idx + 1 < len(self.kinetic_lines):
             next_line = self.kinetic_lines[active_idx + 1]
             next_layout = Pango.Layout.new(pctx)
-            next_desc = Pango.FontDescription("Google Sans Flex 16")
+            next_desc = Pango.FontDescription("Google Sans Flex 17")
             next_desc.set_weight(Pango.Weight.BOLD)
             next_layout.set_font_description(next_desc)
-            next_layout.set_width(int((w - base_x - 48.0) * Pango.SCALE))
+            next_layout.set_width(int((w - base_x - 36.0) * Pango.SCALE))
             next_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-            next_layout.set_text(f"󰒭  {next_line['text']}", -1)
+            next_layout.set_text(next_line['text'], -1)
             
-            next_y = hero_end_y + 26.0
+            next_y = hero_end_y + 22.0
             if next_y < h - 10:
-                next_alpha = min(0.28, max(0.05, (h - 15.0 - next_y) / 40.0 * 0.28))
+                next_alpha = min(0.32, max(0.06, (h - 10.0 - next_y) / 40.0 * 0.32))
                 cr.set_source_rgba(1.0, 1.0, 1.0, next_alpha)
                 cr.move_to(base_x, next_y)
                 PangoCairo.show_layout(cr, next_layout)
-
-        # ---------------------------------------------------------------------
-        # 7. Top & Bottom Smooth Dissolve Vignette
-        # ---------------------------------------------------------------------
-        top_grad = cairo.LinearGradient(0, 0, 0, 36)
-        top_grad.add_color_stop_rgba(0.0, 0.04, 0.06, 0.09, 0.90)
-        top_grad.add_color_stop_rgba(1.0, 0.04, 0.06, 0.09, 0.0)
-        cr.set_source(top_grad)
-        cr.rectangle(0, 0, w, 36)
-        cr.fill()
-
-        bot_grad = cairo.LinearGradient(0, h - 36, 0, h)
-        bot_grad.add_color_stop_rgba(0.0, 0.04, 0.06, 0.09, 0.0)
-        bot_grad.add_color_stop_rgba(1.0, 0.04, 0.06, 0.09, 0.90)
-        cr.set_source(bot_grad)
-        cr.rectangle(0, h - 36, w, 36)
-        cr.fill()
 
         return False
 
