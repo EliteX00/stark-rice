@@ -18,6 +18,7 @@ Zenify - Kinetic Typography & Apple Music Frosted Glass UI
 
 import os
 import sys
+import re
 import time
 import json
 import math
@@ -375,7 +376,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 "y": y,
                 "r": 8.0,
                 "max_r": max_r,
-                "alpha": 0.65
+                "alpha": 0.40
             })
 
     def _on_click(self, widget, event):
@@ -439,11 +440,11 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             cr.fill()
 
         # ---------------------------------------------------------------------
-        # 2. Expanding Shockwave Rings
+        # 2. Expanding Shockwave Ambient Rings
         # ---------------------------------------------------------------------
         for sw in self.shockwaves:
-            cr.set_line_width(1.8)
-            cr.set_source_rgba(r_acc, g_acc, b_acc, sw["alpha"])
+            cr.set_line_width(2.8)
+            cr.set_source_rgba(r_acc, g_acc, b_acc, sw["alpha"] * 0.35)
             cr.arc(sw["x"], sw["y"], sw["r"], 0, 2 * math.pi)
             cr.stroke()
 
@@ -478,6 +479,9 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 PangoCairo.show_layout(cr, layout)
                 _, lh = layout.get_pixel_size()
                 y += lh + 18.0
+            return False
+
+        if not self.kinetic_lines:
             return False
 
         active_idx = max(0, min(len(self.kinetic_lines) - 1, self.active_line_idx))
@@ -516,32 +520,17 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         PangoCairo.show_layout(cr, badge_layout)
 
         # ---------------------------------------------------------------------
-        # 4. Context Framing: Previous Line (Subtle above)
+        # 4. HERO ACTIVE COMPOSITION (Word-by-Word Kinetic Edit)
         # ---------------------------------------------------------------------
-        center_y = h * 0.44
-        line_offset = (self.smooth_line_idx - float(active_idx)) * 65.0
+        # Responsive font sizing
+        if w < 440:
+            hero_font_size = 22
+        elif w < 580:
+            hero_font_size = 26
+        else:
+            hero_font_size = 30 if len(active_line["text"]) < 50 else 25
 
-        if active_idx > 0:
-            prev_line = self.kinetic_lines[active_idx - 1]
-            prev_layout = Pango.Layout.new(pctx)
-            prev_desc = Pango.FontDescription("Google Sans Flex 17")
-            prev_desc.set_weight(Pango.Weight.BOLD)
-            prev_layout.set_font_description(prev_desc)
-            prev_layout.set_width(int((w - 72) * Pango.SCALE))
-            prev_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-            prev_layout.set_text(f"󰒮  {prev_line['text']}", -1)
-            
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.32)
-            cr.move_to(36, center_y - 80.0 - line_offset)
-            PangoCairo.show_layout(cr, prev_layout)
-
-        # ---------------------------------------------------------------------
-        # 5. HERO ACTIVE COMPOSITION (Word-by-Word Kinetic Edit)
-        # ---------------------------------------------------------------------
         hero_layout = Pango.Layout.new(pctx)
-        
-        # Adaptive font size based on text length
-        hero_font_size = 32 if len(active_line["text"]) < 45 else 26
         hero_desc = Pango.FontDescription(f"Google Sans Flex {hero_font_size}")
         hero_desc.set_weight(Pango.Weight.HEAVY)
         hero_layout.set_font_description(hero_desc)
@@ -557,7 +546,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             word_metrics.append((w_obj, pw, ph))
 
         # Dynamic row packing
-        max_row_w = w - 72
+        max_row_w = max(180, w - 72)
         line_rows = []
         cur_row = []
         cur_row_w = 0
@@ -576,9 +565,36 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         if cur_row:
             line_rows.append((cur_row, cur_row_w))
 
-        row_h = float(hero_font_size * 1.55)
-        hero_start_y = center_y - ((len(line_rows) * row_h) / 2.0) - line_offset
+        row_h = float(hero_font_size * 1.34)
+        total_hero_h = len(line_rows) * row_h
+        center_y = h * 0.46
+        line_offset = (self.smooth_line_idx - float(active_idx)) * 48.0
 
+        hero_start_y = center_y - (total_hero_h / 2.0) - line_offset
+        hero_end_y = hero_start_y + total_hero_h
+
+        # ---------------------------------------------------------------------
+        # 5. Context Framing: Previous Line (Guaranteed clearance ABOVE hero)
+        # ---------------------------------------------------------------------
+        if active_idx > 0:
+            prev_line = self.kinetic_lines[active_idx - 1]
+            prev_layout = Pango.Layout.new(pctx)
+            prev_desc = Pango.FontDescription("Google Sans Flex 16")
+            prev_desc.set_weight(Pango.Weight.BOLD)
+            prev_layout.set_font_description(prev_desc)
+            prev_layout.set_width(int((w - 72) * Pango.SCALE))
+            prev_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+            prev_layout.set_text(f"󰒮  {prev_line['text']}", -1)
+            _, prev_h = prev_layout.get_pixel_size()
+            
+            prev_y = hero_start_y - prev_h - 26.0
+            if prev_y > 10:
+                prev_alpha = min(0.35, max(0.05, (prev_y - 15.0) / 40.0 * 0.35))
+                cr.set_source_rgba(1.0, 1.0, 1.0, prev_alpha)
+                cr.move_to(36, prev_y)
+                PangoCairo.show_layout(cr, prev_layout)
+
+        # Draw Active Hero Words
         for r_idx, (row_items, row_w) in enumerate(line_rows):
             x_cursor = 36.0
             y_cursor = hero_start_y + (r_idx * row_h)
@@ -601,8 +617,8 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                     # ACTIVE WORD (Kinetic Pop, Chromatic Aberration, Glow Aura)
                     p = (cur_t - w_start) / w_dur
                     pop = max(0.0, 1.0 - (p * 3.0))
-                    scale = 1.0 + (0.26 * pop)
-                    chroma = (4.0 if wps >= 4.0 else 2.6) * pop
+                    scale = 1.0 + (0.24 * pop)
+                    chroma = (3.8 if wps >= 4.0 else 2.4) * pop
 
                     # Trigger Shockwave once on word impact
                     word_key = f"{active_idx}_{w_obj['text']}"
@@ -651,21 +667,24 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 x_cursor += pw + space_w
 
         # ---------------------------------------------------------------------
-        # 6. Context Framing: Next Line (Subtle below)
+        # 6. Context Framing: Next Line (Guaranteed clearance BELOW hero)
         # ---------------------------------------------------------------------
         if active_idx + 1 < len(self.kinetic_lines):
             next_line = self.kinetic_lines[active_idx + 1]
             next_layout = Pango.Layout.new(pctx)
-            next_desc = Pango.FontDescription("Google Sans Flex 17")
+            next_desc = Pango.FontDescription("Google Sans Flex 16")
             next_desc.set_weight(Pango.Weight.BOLD)
             next_layout.set_font_description(next_desc)
             next_layout.set_width(int((w - 72) * Pango.SCALE))
             next_layout.set_wrap(Pango.WrapMode.WORD_CHAR)
             next_layout.set_text(f"󰒭  {next_line['text']}", -1)
             
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.26)
-            cr.move_to(36, center_y + (len(line_rows) * row_h * 0.5) + 48.0 - line_offset)
-            PangoCairo.show_layout(cr, next_layout)
+            next_y = hero_end_y + 26.0
+            if next_y < h - 10:
+                next_alpha = min(0.28, max(0.05, (h - 15.0 - next_y) / 40.0 * 0.28))
+                cr.set_source_rgba(1.0, 1.0, 1.0, next_alpha)
+                cr.move_to(36, next_y)
+                PangoCairo.show_layout(cr, next_layout)
 
         # ---------------------------------------------------------------------
         # 7. Top & Bottom Smooth Dissolve Vignette
