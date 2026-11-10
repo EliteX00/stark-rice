@@ -799,11 +799,26 @@ class StarkPlayerBackend:
         if prev_title and prev_title != "Nothing Playing":
             self.history_mgr.record_dwell_affinity(prev_title, prev_artist, prev_pos, prev_dur)
 
-        # YouTube stream resolution: search for the exact official song audio
-        if yt_id:
-            media_src = f"https://www.youtube.com/watch?v={yt_id}"
+        # Clean studio audio resolution: Prioritize YouTube Music songs catalog.
+        # This guarantees clean studio album tracks (e.g. 3:06) and prevents theatrical
+        # music videos with skits/dialogue (e.g. 4:46 Kendrick DNA skit) from ruining lyric sync.
+        audio_yt_id = yt_id
+        if not audio_yt_id:
+            try:
+                engine = self.history_mgr.yt_engine
+                if engine and engine.yt:
+                    s = engine.yt.search(f"{clean_t} {artist}", filter="songs")
+                    if s and s[0].get("videoId"):
+                        audio_yt_id = s[0].get("videoId")
+            except Exception:
+                pass
+
+        if audio_yt_id:
+            media_src = f"https://www.youtube.com/watch?v={audio_yt_id}"
+            actual_yt_id = audio_yt_id
         else:
-            media_src = f"ytdl://ytsearch1:{clean_t} {artist} official audio"
+            media_src = f"ytdl://ytsearch1:{clean_t} {artist} audio"
+            actual_yt_id = yt_id
 
         self.send_mpv_cmd(["loadfile", media_src, "replace"])
         self.send_mpv_cmd(["set_property", "pause", False])
@@ -821,33 +836,27 @@ class StarkPlayerBackend:
         self.state["artist"] = artist
         self.state["art_url"] = art_url
         self.state["art_path"] = art_local
-        self.state["yt_id"] = yt_id
+        self.state["yt_id"] = actual_yt_id
         self.state["is_playing"] = True
         self.state["position"] = 0.0
         self.state["progress"] = 0.0
         self.state["autoplay"] = self.history_mgr.autoplay_enabled
         self._save_state()
 
-        self.history_mgr.record_listen(clean_t, artist, art_url, yt_id)
+        self.history_mgr.record_listen(clean_t, artist, art_url, actual_yt_id)
         self._last_played_title = clean_t
         self._was_playing = True
 
         # Sync to YouTube account cloud watch history
-        def _sync_cloud(t_name, a_name, vid):
+        def _sync_cloud(vid):
             try:
                 engine = self.history_mgr.yt_engine
-                if not vid and engine.yt:
-                    s = engine.yt.search(f"{t_name} {a_name}", filter="songs")
-                    if s and s[0].get("videoId"):
-                        vid = s[0].get("videoId")
-                        self.state["yt_id"] = vid
-                        self._save_state()
                 if vid and engine.is_authenticated:
                     engine.sync_cloud_history(vid)
             except Exception:
                 pass
 
-        threading.Thread(target=_sync_cloud, args=(clean_t, artist, yt_id), daemon=True).start()
+        threading.Thread(target=_sync_cloud, args=(actual_yt_id,), daemon=True).start()
 
         try:
             msg = f"{clean_t} - {artist}"
@@ -1091,7 +1100,39 @@ class StarkPlayerBackend:
         # 3. Dual-Engine Fallback for independent / niche / phonk artists
         if len(results) < 4:
             try:
-                cmd = ["yt-dlp", "--dump-json", f"ytsearch12:{clean_q}", "--flat-playlist", "--no-warnings"]
+                # Query YouTube Music songs catalog first for clean album tracks & exact studio durations
+                ytm = YTMusic()
+                yt_songs = ytm.search(clean_q, filter="songs")
+                for item in yt_songs:
+                    raw_title = item.get("title", "")
+                    artists_list = item.get("artists", [])
+                    a_name = artists_list[0].get("name", "Artist") if artists_list else "Artist"
+                    clean_item_t = sanitize_title(raw_title, a_name)
+                    dur_str = item.get("duration", "0:00")
+                    dur_parts = str(dur_str).split(":")
+                    dur = int(dur_parts[0]) * 60 + int(dur_parts[1]) if len(dur_parts) == 2 else 0
+                    key = f"{clean_item_t.lower()}_{a_name.lower()}"
+                    v_id = item.get("videoId", "")
+                    if key not in seen and is_valid_track(clean_item_t, dur, is_official=True):
+                        seen.add(key)
+                        thumbs = item.get("thumbnails", [])
+                        art = thumbs[-1].get("url") if thumbs else ""
+                        results.append({
+                            "title": clean_item_t,
+                            "artist": a_name,
+                            "album": item.get("album", {}).get("name", "") if item.get("album") else "",
+                            "duration": dur,
+                            "art_url": art,
+                            "yt_id": v_id
+                        })
+                    if len(results) >= limit:
+                        break
+            except Exception:
+                pass
+
+        if len(results) < 4:
+            try:
+                cmd = ["yt-dlp", "--dump-json", f"ytsearch12:{clean_q} audio", "--flat-playlist", "--no-warnings"]
                 out = subprocess.check_output(cmd, text=True, timeout=5.0)
                 for line in out.strip().split("\n"):
                     if not line:

@@ -192,8 +192,34 @@ class AppleMusicScrubber(Gtk.DrawingArea):
 
 
 # ==============================================================================
-# Dual-Engine Kinetic Typography & Calm Sliding Lyrics Canvas (60 FPS Locked)
 # ==============================================================================
+# Dual-Mode Kinetic Typography & Apple Luminescence Canvas (60 FPS Locked)
+# Ground-Truth Per-Word Sync with Minimalist Monochrome Glyphs & Static Rows
+# ==============================================================================
+MINIMAL_GLYPHS = {
+    'car': '󰄋', 'cars': '󰄋', 'drive': '󰄋', 'driving': '󰄋', 'ride': '󰄋', 'whip': '󰄋', 'skrrt': '󰄋', 'drift': '󰄋',
+    'phone': '󰏲', 'call': '󰏲', 'calling': '󰏲', 'ring': '󰏲',
+    'time': '󰅐', 'minute': '󰅐', 'minutes': '󰅐', 'wait': '󰅐', 'waiting': '󰅐', 'hour': '󰅐',
+    'heart': '󰋑', 'hearts': '󰋑', 'love': '󰋑', 'need': '󰋑', 'kiss': '󰋑',
+    'fire': '󰈸', 'hot': '󰈸', 'burn': '󰈸', 'burning': '󰈸', 'flame': '󰈸',
+    'star': '󰓎', 'stars': '󰓎', 'shine': '󰓎', 'sparkle': '󰓎',
+    'music': '󰎆', 'song': '󰎆', 'sing': '󰎆', 'note': '󰎆',
+    'rain': '󰖗', 'raining': '󰖗', 'storm': '󰖗', 'thunder': '󰖗',
+    'sun': '󰖙', 'sunny': '󰖙', 'summer': '󰖙',
+    'moon': '󰖔', 'night': '󰖔', 'midnight': '󰖔',
+    'wind': '󰖝', 'blew': '󰖝', 'smoke': '󰖝', 'cloud': '󰖝',
+    'money': '󰈚', 'cash': '󰈚', 'bands': '󰈚', 'rich': '󰈚', 'bag': '󰈚',
+    'crown': '󰄯', 'king': '󰄯', 'queen': '󰄯',
+    'eye': '󰈈', 'eyes': '󰈈', 'see': '󰈈', 'look': '󰈈',
+    'smile': '󰍢', 'happy': '󰍢', 'laugh': '󰍢',
+    'talk': '󰭹', 'say': '󰭹', 'telling': '󰭹', 'chat': '󰭹',
+    'pill': '󰈺', 'pills': '󰈺',
+    'walk': '󰈲', 'walking': '󰈲', 'run': '󰈲', 'running': '󰈲', 'dance': '󰈲',
+    'plane': '󰀝', 'fly': '󰀝', 'flight': '󰀝',
+    'chance': '󰄮', 'chances': '󰄮', 'deal': '󰄮', 'dice': '󰄮'
+}
+
+
 class CinematicLyricsCanvas(Gtk.DrawingArea):
     def __init__(self, on_seek_cb=None):
         super().__init__()
@@ -201,13 +227,15 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.raw_lines = []
         self.kinetic_lines = []
         self.is_synced = False
-        
+
         self.active_line_idx = -1
         self.smooth_line_idx = 0.0
-        self.active_word_key = ""
-        
-        # Audio Latency Offset Compensation (ensures visual hits match audio waves)
+        self.active_word_key = ''
+
+        # Audio Latency Offset Compensation (aligns visual strikes with acoustic waves)
         self.latency_offset = -0.10
+        self.hud_toast_text = ""
+        self.hud_toast_timer = 0.0
 
         # Persistent Pango Layouts (Allocated ONCE, NEVER in _on_draw!)
         self.pctx = None
@@ -216,7 +244,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.cached_layouts = {}
         self.last_cache_w = 0
 
-        # Audio-reactive Cava Engine for sound/vocal synchronization
+        # Audio-reactive Cava Engine for vocal / bass energy modulation
         try:
             from stark_widgets import CavaVisualizerEngine
             self.cava = CavaVisualizerEngine(num_bars=10)
@@ -227,22 +255,23 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.anchor_pos = 0.0
         self.anchor_wall_time = time.perf_counter()
         self.is_playing = False
-        
-        self.accent_rgb = (56, 189, 248)
+
+        self.primary_accent = (56, 189, 248)
+        self.secondary_accent = (200, 160, 180)
         self.anim_timer = None
         self.user_scrolling = False
         self.snap_back_timer = None
-        
-        # Special Effects: Floating Ambient Bokeh Particles
+
+        # Floating Ambient Particles
         self.particles = []
         for _ in range(16):
             self.particles.append({
-                "x": random.uniform(0.0, 1.0),
-                "y": random.uniform(0.0, 1.0),
-                "r": random.uniform(1.2, 3.0),
-                "vy": random.uniform(0.0003, 0.0007),
-                "vx": random.uniform(-0.00015, 0.00015),
-                "alpha": random.uniform(0.08, 0.20)
+                'x': random.uniform(0.0, 1.0),
+                'y': random.uniform(0.0, 1.0),
+                'r': random.uniform(1.2, 3.0),
+                'vy': random.uniform(0.0003, 0.0007),
+                'vx': random.uniform(-0.00015, 0.00015),
+                'alpha': random.uniform(0.08, 0.20)
             })
 
         self.shockwaves = []
@@ -254,26 +283,52 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             | Gdk.EventMask.SCROLL_MASK
             | Gdk.EventMask.POINTER_MOTION_MASK
         )
-        self.connect("draw", self._on_draw)
-        self.connect("button-press-event", self._on_click)
-        self.connect("scroll-event", self._on_scroll)
-        
-        # Start persistent 60FPS render loop
+        self.connect('draw', self._on_draw)
+        self.connect('button-press-event', self._on_click)
+        self.connect('scroll-event', self._on_scroll)
+
         self._start_anim()
 
-    def set_lyrics(self, raw_lines, is_synced):
-        self.raw_lines = raw_lines
+    def nudge_offset(self, delta):
+        self.latency_offset += delta
+        self.hud_toast_text = f"󰅐 Lyrics Offset: {self.latency_offset:+.2f}s"
+        self.hud_toast_timer = time.time() + 1.8
+        self.queue_draw()
+
+    def reset_offset(self):
+        self.latency_offset = -0.10
+        self.hud_toast_text = f"󰅐 Lyrics Offset Reset: {self.latency_offset:+.2f}s"
+        self.hud_toast_timer = time.time() + 1.8
+        self.queue_draw()
+
+    def set_palette(self, p_rgb, s_rgb):
+        self.primary_accent = p_rgb
+        self.secondary_accent = s_rgb
+        self.queue_draw()
+
+    def set_accent_rgb(self, rgb):
+        self.primary_accent = rgb
+        self.queue_draw()
+
+    def set_lyrics(self, k_lines, is_synced, raw_text='', words=None):
         self.is_synced = is_synced
-        self.kinetic_lines = self._build_kinetic_lines(raw_lines) if is_synced else []
+        self.raw_lines = [(l['start'], l['text']) for l in k_lines] if is_synced else []
+        self.kinetic_lines = k_lines if is_synced else []
+
+        # Attach minimalist monochrome glyphs to words
+        for line in self.kinetic_lines:
+            for w in line.get('words', []):
+                clean = w.get('clean')
+                if not clean:
+                    clean = re.sub(r'[^a-zA-Z0-9]', '', w.get('text', '')).lower()
+                    w['clean'] = clean
+                w['glyph'] = MINIMAL_GLYPHS.get(clean.lower(), '')
+
         self.cached_layouts.clear()
         self.last_cache_w = 0
         self.active_line_idx = 0 if self.kinetic_lines else -1
         self.smooth_line_idx = 0.0
-        self.active_word_key = ""
-        self.queue_draw()
-
-    def set_accent_rgb(self, rgb):
-        self.accent_rgb = rgb
+        self.active_word_key = ''
         self.queue_draw()
 
     def update_position(self, pos_sec, is_playing=True):
@@ -293,68 +348,6 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         if not self.anim_timer:
             self.anim_timer = GLib.timeout_add(16, self._on_frame_tick)
 
-    def _build_kinetic_lines(self, lines):
-        if not lines:
-            return []
-        k_lines = []
-        n = len(lines)
-        for i, (t_start, text) in enumerate(lines):
-            t_next = lines[i + 1][0] if i + 1 < n else t_start + 4.0
-            gap = max(0.4, t_next - t_start)
-            raw_words = text.split()
-            if not raw_words:
-                continue
-
-            # Estimate natural human phonetic spoken duration for each word
-            estimates = []
-            for w in raw_words:
-                clean = re.sub(r'[^a-zA-Z0-9]', '', w)
-                sylls = max(1, len(re.findall(r'[aeiouy]+', clean.lower())))
-                est = 0.12 + (sylls * 0.08) + (len(clean) * 0.015)
-                if w.endswith((',', ';')):
-                    est += 0.14
-                elif w.endswith(('.', '!', '?')):
-                    est += 0.25
-                estimates.append(est)
-
-            natural_total = sum(estimates)
-            if gap < natural_total:
-                # Fast flow: compressed to match exact line transition
-                scale = gap / natural_total
-            elif gap < natural_total * 1.35:
-                # Modest gap: smooth pacing
-                scale = gap / natural_total
-            else:
-                # Natural vocal delivery with instrumental break following
-                scale = 1.0
-
-            cur_t = t_start
-            wps = len(raw_words) / (natural_total * scale)
-            words = []
-            for w_idx, (w, est) in enumerate(zip(raw_words, estimates)):
-                w_dur = est * scale
-                words.append({
-                    "text": w,
-                    "clean": re.sub(r'[^a-zA-Z0-9]', '', w),
-                    "start": cur_t,
-                    "end": cur_t + w_dur,
-                    "duration": w_dur,
-                    "wps": wps
-                })
-                cur_t += w_dur
-
-            k_lines.append({
-                "text": text,
-                "start": t_start,
-                "end": cur_t,
-                "gap": gap,
-                "duration": cur_t - t_start,
-                "words": words,
-                "wps": wps
-            })
-
-        return k_lines
-
     def _get_smooth_time(self):
         if self.is_playing:
             dt = time.perf_counter() - self.anchor_wall_time
@@ -371,7 +364,6 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         if line_idx < 0 or line_idx >= len(self.kinetic_lines):
             return None
 
-        # Invalidate cache if canvas width changed significantly
         if abs(canvas_w - self.last_cache_w) > 10:
             self.cached_layouts.clear()
             self.last_cache_w = canvas_w
@@ -381,81 +373,85 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
         self._ensure_layouts()
         line = self.kinetic_lines[line_idx]
-        is_rap = (line.get("wps", 2.0) >= 2.6)
+        is_rap = (line.get('wps', 2.0) >= 2.4)
 
         if canvas_w < 480:
-            base_font_size = 22
+            base_font_size = 20
         elif canvas_w < 620:
-            base_font_size = 25
+            base_font_size = 22
         else:
-            base_font_size = 27
+            base_font_size = 24
 
-        desc = Pango.FontDescription(f"Google Sans Flex {base_font_size}")
+        font_desc_str = f'Google Sans Flex, JetBrainsMono Nerd Font {base_font_size}'
+        desc = Pango.FontDescription(font_desc_str)
         desc.set_weight(Pango.Weight.HEAVY if is_rap else Pango.Weight.BOLD)
         self.layout_word.set_font_description(desc)
 
-        self.layout_word.set_text(" ", -1)
+        self.layout_word.set_text(' ', -1)
         space_w, _ = self.layout_word.get_pixel_size()
+        word_spacing = max(space_w + 6, int(space_w * 1.7))
 
-        # Measure each word's base size once
         measured_words = []
-        for w_obj in line["words"]:
-            self.layout_word.set_text(w_obj["text"], -1)
+        for w_idx, w_obj in enumerate(line['words']):
+            glyph = w_obj.get('glyph', '')
+            disp_text = f"{w_obj['text']} {glyph}" if glyph else w_obj['text']
+            self.layout_word.set_text(disp_text, -1)
             pw, ph = self.layout_word.get_pixel_size()
             measured_words.append({
-                "obj": w_obj,
-                "text": w_obj["text"],
-                "clean": w_obj["clean"],
-                "start": w_obj["start"],
-                "end": w_obj["end"],
-                "duration": w_obj["duration"],
-                "pw": pw,
-                "ph": ph
+                'idx': w_idx,
+                'obj': w_obj,
+                'text': disp_text,
+                'clean': w_obj['clean'],
+                'start': w_obj['start'],
+                'end': w_obj['end'],
+                'duration': w_obj['duration'],
+                'pw': pw,
+                'ph': ph
             })
 
         # STATIC row division - NEVER re-wraps words when active!
-        max_row_w = max(240, canvas_w - 48.0)
+        max_row_w = max(220.0, canvas_w - 90.0)
         rows = []
         cur_row_words = []
         cur_row_w = 0.0
 
         for mw in measured_words:
-            pw = mw["pw"]
-            if cur_row_words and (cur_row_w + space_w + pw > max_row_w):
-                rows.append({"words": cur_row_words, "w": cur_row_w})
+            pw = mw['pw']
+            if cur_row_words and (cur_row_w + word_spacing + pw > max_row_w):
+                rows.append({'words': cur_row_words, 'w': cur_row_w})
                 cur_row_words = [mw]
                 cur_row_w = pw
             else:
                 if cur_row_words:
-                    cur_row_w += space_w + pw
+                    cur_row_w += word_spacing + pw
                 else:
                     cur_row_w = pw
                 cur_row_words.append(mw)
         if cur_row_words:
-            rows.append({"words": cur_row_words, "w": cur_row_w})
+            rows.append({'words': cur_row_words, 'w': cur_row_w})
 
-        row_h = float(base_font_size * 1.55)
+        row_h = float(base_font_size * 1.6)
         total_h = len(rows) * row_h
 
-        # Position words within rows
+        # Position words within rows statically
         for r_idx, r in enumerate(rows):
-            r_start_x = max(16.0, (canvas_w - r["w"]) / 2.0)
+            r_start_x = max(24.0, (canvas_w - r['w']) / 2.0)
             x_cursor = r_start_x
             y_pos = r_idx * row_h
-            for mw in r["words"]:
-                mw["x"] = x_cursor
-                mw["y"] = y_pos
-                mw["cx"] = x_cursor + (mw["pw"] / 2.0)
-                mw["cy"] = y_pos + (mw["ph"] / 2.0)
-                x_cursor += mw["pw"] + space_w
+            for mw in r['words']:
+                mw['x'] = x_cursor
+                mw['y'] = y_pos
+                mw['cx'] = x_cursor + (mw['pw'] / 2.0)
+                mw['cy'] = y_pos + (mw['ph'] / 2.0)
+                x_cursor += mw['pw'] + word_spacing
 
         layout_data = {
-            "is_rap": is_rap,
-            "font_size": base_font_size,
-            "desc": desc,
-            "rows": rows,
-            "total_h": total_h,
-            "row_h": row_h
+            'is_rap': is_rap,
+            'font_size': base_font_size,
+            'desc': desc,
+            'rows': rows,
+            'total_h': total_h,
+            'row_h': row_h
         }
         self.cached_layouts[line_idx] = layout_data
         return layout_data
@@ -466,67 +462,78 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
         cur_t = self._get_smooth_time() + self.latency_offset
 
-        # Update active line
         if self.is_synced and self.kinetic_lines and not self.user_scrolling:
             new_line = -1
             for i, l in enumerate(self.kinetic_lines):
-                if cur_t >= l["start"]:
+                if cur_t >= l['start']:
                     new_line = i
                 else:
                     break
             if new_line != -1 and new_line != self.active_line_idx:
                 self.active_line_idx = new_line
-                self.active_word_key = ""
+                self.active_word_key = ''
+            elif new_line == -1 and cur_t < self.kinetic_lines[0]['start']:
+                self.active_line_idx = -1
+                self.active_word_key = ''
 
-            # Check if active word changed to trigger shockwave
+            # Trigger shockwave when active word strikes in fast rap tracks
             if self.active_line_idx != -1 and self.active_line_idx < len(self.kinetic_lines):
                 cur_l = self.kinetic_lines[self.active_line_idx]
-                is_rap = (cur_l.get("wps", 2.0) >= 2.6)
-                if is_rap:
-                    for w in cur_l["words"]:
-                        if w["start"] <= cur_t <= w["end"]:
-                            w_key = f"{self.active_line_idx}_{w['text']}_{w['start']}"
+                if cur_l.get('wps', 2.0) >= 2.4:
+                    for w_obj in cur_l.get('words', []):
+                        if w_obj['start'] <= cur_t <= w_obj['end']:
+                            w_key = f"{self.active_line_idx}_{w_obj['text']}_{w_obj['start']}"
                             if w_key != self.active_word_key:
                                 self.active_word_key = w_key
                                 w_canvas = self.get_allocated_width()
                                 h_canvas = self.get_allocated_height()
-                                self._trigger_shockwave(w_canvas / 2.0, h_canvas * 0.48, max_r=65)
+                                self._trigger_shockwave(w_canvas / 2.0, h_canvas * 0.48, max_r=55)
                             break
 
-            diff = float(self.active_line_idx) - self.smooth_line_idx
+            target_idx = max(0, self.active_line_idx) if self.active_line_idx != -1 else 0.0
+            diff = float(target_idx) - self.smooth_line_idx
             self.smooth_line_idx += diff * 0.18
 
-        # Update floating ambient particles
+        # Floating ambient dust
         for p in self.particles:
-            p["y"] -= p["vy"]
-            p["x"] += p["vx"]
-            if p["y"] < -0.05:
-                p["y"] = 1.05
-                p["x"] = random.uniform(0.0, 1.0)
-            if p["x"] < 0.0 or p["x"] > 1.0:
-                p["vx"] = -p["vx"]
+            p['y'] -= p['vy']
+            p['x'] += p['vx']
+            if p['y'] < -0.05:
+                p['y'] = 1.05
+                p['x'] = random.uniform(0.0, 1.0)
+            if p['x'] < 0.0 or p['x'] > 1.0:
+                p['vx'] = -p['vx']
 
-        # Update shockwaves
+        # Shockwaves
         kept_waves = []
         for sw in self.shockwaves:
-            sw["r"] += 3.4
-            sw["alpha"] -= 0.038
-            if sw["alpha"] > 0:
+            sw['r'] += 3.2
+            sw['alpha'] -= 0.045
+            if sw['alpha'] > 0:
                 kept_waves.append(sw)
         self.shockwaves = kept_waves
 
         self.queue_draw()
         return True
 
-    def _trigger_shockwave(self, x, y, max_r=65):
-        if len(self.shockwaves) < 4:
+    def _trigger_shockwave(self, x, y, max_r=55):
+        if len(self.shockwaves) < 3:
             self.shockwaves.append({
-                "x": x,
-                "y": y,
-                "r": 10.0,
-                "max_r": max_r,
-                "alpha": 0.42
+                'x': x,
+                'y': y,
+                'r': 8.0,
+                'max_r': max_r,
+                'alpha': 0.42
             })
+
+    def _draw_pill(self, cr, x, y, w, h, r):
+        r = min(r, w / 2.0, h / 2.0)
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
 
     def _on_click(self, widget, event):
         if not self.kinetic_lines or not self.is_synced:
@@ -543,7 +550,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             target_idx = self.active_line_idx
 
         if 0 <= target_idx < len(self.kinetic_lines):
-            target_time = self.kinetic_lines[target_idx]["start"]
+            target_time = self.kinetic_lines[target_idx]['start']
             if self.on_seek_cb:
                 self.on_seek_cb(max(0.0, target_time - 0.05))
             return True
@@ -560,7 +567,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
         if self.snap_back_timer:
             GLib.source_remove(self.snap_back_timer)
-        self.snap_back_timer = GLib.timeout_add(3000, self._snap_back_to_active)
+        self.snap_back_timer = GLib.timeout_add(2500, self._snap_back_to_active)
         return True
 
     def _snap_back_to_active(self):
@@ -568,15 +575,32 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.snap_back_timer = None
         return False
 
-    def _draw_pill(self, cr, x, y, w, h, r):
-        r = min(r, w / 2.0, h / 2.0)
-        cr.new_sub_path()
-        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
-        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
-        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
-        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-        cr.fill()
+    def _draw_hud_toast(self, cr, w, r_acc, g_acc, b_acc):
+        if time.time() < self.hud_toast_timer and self.hud_toast_text:
+            fade = min(1.0, max(0.0, (self.hud_toast_timer - time.time()) / 0.4))
+            desc_hud = Pango.FontDescription('Google Sans Flex Bold 13')
+            self.layout_ctx.set_font_description(desc_hud)
+            self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
+            self.layout_ctx.set_width(-1)
+            self.layout_ctx.set_text(self.hud_toast_text, -1)
+            hw, hh = self.layout_ctx.get_pixel_size()
+            toast_pad_x = 16.0
+            toast_pad_y = 6.0
+            toast_w = hw + (toast_pad_x * 2.0)
+            toast_h = hh + (toast_pad_y * 2.0)
+            toast_x = (w - toast_w) / 2.0
+            toast_y = 18.0
+
+            cr.set_source_rgba(0.06, 0.10, 0.16, 0.88 * fade)
+            self._draw_pill(cr, toast_x, toast_y, toast_w, toast_h, toast_h / 2.0)
+            cr.fill_preserve()
+            cr.set_source_rgba(r_acc, g_acc, b_acc, 0.45 * fade)
+            cr.set_line_width(1.0)
+            cr.stroke()
+
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.95 * fade)
+            cr.move_to(toast_x + toast_pad_x, toast_y + toast_pad_y)
+            PangoCairo.show_layout(cr, self.layout_ctx)
 
     def _on_draw(self, widget, cr):
         w = self.get_allocated_width()
@@ -585,34 +609,28 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         if w <= 10 or h <= 10:
             return False
 
-        r_acc, g_acc, b_acc = [c / 255.0 for c in self.accent_rgb]
         self._ensure_layouts()
+        r_acc, g_acc, b_acc = [c / 255.0 for c in self.primary_accent]
 
-        # ---------------------------------------------------------------------
-        # 1. Floating Ambient Dust / Bokeh Sparks
-        # ---------------------------------------------------------------------
+        # 1. Ambient Particles
         for p in self.particles:
-            px = p["x"] * w
-            py = p["y"] * h
-            cr.set_source_rgba(r_acc, g_acc, b_acc, p["alpha"])
-            cr.arc(px, py, p["r"], 0, 2 * math.pi)
+            px = p['x'] * w
+            py = p['y'] * h
+            cr.set_source_rgba(r_acc, g_acc, b_acc, p['alpha'])
+            cr.arc(px, py, p['r'], 0, 2 * math.pi)
             cr.fill()
 
-        # ---------------------------------------------------------------------
-        # 2. Expanding Shockwave Rings on Word Impact
-        # ---------------------------------------------------------------------
+        # 2. Expanding Shockwave Rings
         for sw in self.shockwaves:
-            cr.set_source_rgba(r_acc, g_acc, b_acc, sw["alpha"])
+            cr.set_source_rgba(r_acc, g_acc, b_acc, sw['alpha'])
             cr.set_line_width(1.8)
-            cr.arc(sw["x"], sw["y"], sw["r"], 0, 2 * math.pi)
+            cr.arc(sw['x'], sw['y'], sw['r'], 0, 2 * math.pi)
             cr.stroke()
 
         center_y = h * 0.48
         cur_t = self._get_smooth_time() + self.latency_offset
 
-        # ---------------------------------------------------------------------
-        # 3. Live Sound Analysis (Cava PipeWire Realtime Spectrum)
-        # ---------------------------------------------------------------------
+        # 3. Live Audio Reactive Beat / Vocal Energy (Cava)
         bars = self.cava.get_bars() if self.cava else [3.0] * 10
         vocal_energy = sum(bars[3:7]) / 4.0
         norm_vocal = max(0.0, min(1.0, (vocal_energy - 3.0) / 13.0))
@@ -621,12 +639,11 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
         # Empty / Instrumental State
         if not self.kinetic_lines and not self.raw_lines:
-            desc = Pango.FontDescription("Google Sans Flex 18")
-            desc.set_weight(Pango.Weight.BOLD)
+            desc = Pango.FontDescription('Google Sans Flex Bold 18')
             self.layout_ctx.set_font_description(desc)
             self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
             self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-            self.layout_ctx.set_text("󰎆  Instrumental or lyrics unavailable", -1)
+            self.layout_ctx.set_text('󰎆  Instrumental or lyrics unavailable', -1)
             lw, lh = self.layout_ctx.get_pixel_size()
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.40)
             cr.move_to((w - lw) / 2.0, center_y - (lh / 2.0))
@@ -635,11 +652,10 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
         # Unsynced fallback
         if not self.is_synced:
-            desc = Pango.FontDescription("Google Sans Flex 18")
+            desc = Pango.FontDescription('Google Sans Flex Bold 18')
             self.layout_ctx.set_font_description(desc)
             self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
             self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-            self.layout_ctx.set_wrap(Pango.WrapMode.WORD_CHAR)
             y = 40.0
             for _, txt in self.raw_lines[:15]:
                 self.layout_ctx.set_text(txt, -1)
@@ -650,28 +666,64 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 y += lh + 18.0
             return False
 
-        if not self.kinetic_lines:
+        # Check if song is in Intro phase (before first lyric line begins)
+        first_line = self.kinetic_lines[0]
+        if cur_t < first_line['start'] - 0.2:
+            num_pill_bars = 5
+            pill_w = 4.0
+            pill_gap = 6.0
+            start_bx = (w / 2.0) - ((num_pill_bars * (pill_w + pill_gap) - pill_gap) / 2.0)
+            for b_i in range(num_pill_bars):
+                bar_h = 6.0 + (bars[b_i * 2] / 16.0) * 28.0
+                bx = start_bx + b_i * (pill_w + pill_gap)
+                by = center_y - 22.0 - (bar_h / 2.0)
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.35 + (bars[b_i * 2] / 16.0) * 0.45)
+                self._draw_pill(cr, bx, by, pill_w, bar_h, 2.0)
+                cr.fill()
+
+            desc = Pango.FontDescription('Google Sans Flex Bold 15')
+            self.layout_ctx.set_font_description(desc)
+            self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
+            self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
+            self.layout_ctx.set_text("󰎆  Intro", -1)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.45)
+            cr.move_to(24.0, center_y + 4.0)
+            PangoCairo.show_layout(cr, self.layout_ctx)
+
+            # Preview upcoming first line in subtle dimmed text (tinted soft blue)
+            desc_first = Pango.FontDescription('Google Sans Flex Bold 17')
+            self.layout_ctx.set_font_description(desc_first)
+            self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
+            self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
+            self.layout_ctx.set_text(first_line['text'], -1)
+            cr.set_source_rgba(0.55, 0.78, 1.0, 0.32)
+            cr.move_to(24.0, center_y + 36.0)
+            PangoCairo.show_layout(cr, self.layout_ctx)
+
+            self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
             return False
 
         active_idx = max(0, min(len(self.kinetic_lines) - 1, self.active_line_idx))
         active_line = self.kinetic_lines[active_idx]
-        wps = active_line.get("wps", 2.5)
 
-        # Get statically cached layout data (0.001ms, ZERO list allocations per frame!)
         layout_data = self._get_line_layout(active_idx, w)
         if not layout_data:
             return False
 
-        is_rap = layout_data["is_rap"]
-        total_hero_h = layout_data["total_h"]
+        is_rap = layout_data['is_rap']
+        total_hero_h = layout_data['total_h']
         line_offset = (self.smooth_line_idx - float(active_idx)) * 48.0
         hero_start_y = center_y - (total_hero_h / 2.0) - line_offset
         hero_end_y = hero_start_y + total_hero_h
 
-        # Check for phrase end / instrumental pause between lines
-        is_paused = (cur_t > active_line["end"] + 0.35) and (cur_t < active_line["start"] + active_line["gap"] - 0.2)
+        # Directional motion blur during line scroll transition
+        scroll_diff = float(active_idx) - self.smooth_line_idx
+        blur_v = max(-8.0, min(8.0, scroll_diff * 12.0))
+        has_motion_blur = abs(blur_v) > 0.5
+
+        # Instrumental pause between lines
+        is_paused = (cur_t > active_line['end'] + 0.35) and (cur_t < active_line['start'] + active_line['gap'] - 0.2)
         if is_paused:
-            # Active phrase has finished; show sound-reactive beat waveform
             num_pill_bars = 5
             pill_w = 4.0
             pill_gap = 6.0
@@ -682,20 +734,21 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 by = center_y - (v_h / 2.0)
                 cr.set_source_rgba(1.0, 1.0, 1.0, 0.30 + (bars[b_i * 2] / 16.0) * 0.45)
                 self._draw_pill(cr, bx, by, pill_w, v_h, 2.0)
+                cr.fill()
 
-            # Next line preview softly below
             if active_idx + 1 < len(self.kinetic_lines):
                 next_l = self.kinetic_lines[active_idx + 1]
-                desc = Pango.FontDescription("Google Sans Flex 17")
-                desc.set_weight(Pango.Weight.BOLD)
+                desc = Pango.FontDescription('Google Sans Flex Bold 16')
                 self.layout_ctx.set_font_description(desc)
                 self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
                 self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-                self.layout_ctx.set_wrap(Pango.WrapMode.WORD_CHAR)
-                self.layout_ctx.set_text(next_l["text"], -1)
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.22)
+                self.layout_ctx.set_text(next_l['text'], -1)
+                # Faded line: soft sky-blue tint
+                cr.set_source_rgba(0.55, 0.78, 1.0, 0.26)
                 cr.move_to(24.0, center_y + 42.0)
                 PangoCairo.show_layout(cr, self.layout_ctx)
+
+            self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
             return False
 
         # ---------------------------------------------------------------------
@@ -703,66 +756,93 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         # ---------------------------------------------------------------------
         if active_idx > 0:
             prev_line = self.kinetic_lines[active_idx - 1]
-            desc = Pango.FontDescription("Google Sans Flex 17")
-            desc.set_weight(Pango.Weight.BOLD)
+            desc = Pango.FontDescription('Google Sans Flex Bold 16')
             self.layout_ctx.set_font_description(desc)
             self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
             self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-            self.layout_ctx.set_wrap(Pango.WrapMode.WORD_CHAR)
             self.layout_ctx.set_text(prev_line['text'], -1)
             _, prev_h = self.layout_ctx.get_pixel_size()
-            
-            prev_y = hero_start_y - prev_h - 24.0
+
+            prev_y = hero_start_y - prev_h - 22.0
             if prev_y > 10:
-                prev_alpha = min(0.35, max(0.06, (prev_y - 10.0) / 40.0 * 0.35))
-                cr.set_source_rgba(1.0, 1.0, 1.0, prev_alpha)
+                prev_alpha = min(0.38, max(0.06, (prev_y - 10.0) / 40.0 * 0.38))
+                # Faded previous line: Soft sky-blue tint + directional motion blur
+                if has_motion_blur:
+                    cr.set_source_rgba(0.55, 0.78, 1.0, prev_alpha * 0.35)
+                    cr.move_to(24.0, prev_y - blur_v * 0.5)
+                    PangoCairo.show_layout(cr, self.layout_ctx)
+                cr.set_source_rgba(0.55, 0.78, 1.0, prev_alpha)
                 cr.move_to(24.0, prev_y)
                 PangoCairo.show_layout(cr, self.layout_ctx)
 
         # ---------------------------------------------------------------------
-        # ACTIVE HERO SENTENCE (Dual-Mode: Fast Kinetic Pop vs Calm Apple Sliding)
+        # ACTIVE HERO SENTENCE (Ground-Truth Per-Word Kinetic Motion)
         # ---------------------------------------------------------------------
-        self.layout_word.set_font_description(layout_data["desc"])
+        # Determine exact active word index inside line
+        active_w_idx = -1
+        for w_i, w_obj in enumerate(active_line.get('words', [])):
+            if cur_t >= w_obj['start']:
+                active_w_idx = w_i
+            else:
+                break
 
-        for r in layout_data["rows"]:
-            for mw in r["words"]:
-                w_start = mw["start"]
-                w_end = mw["end"]
-                w_dur = max(0.06, mw["duration"])
-                word_x = mw["x"]
-                word_y = hero_start_y + mw["y"]
-                cx_word = mw["cx"]
-                cy_word = hero_start_y + mw["cy"]
+        self.layout_word.set_font_description(layout_data['desc'])
 
-                self.layout_word.set_text(mw["text"], -1)
+        for r in layout_data['rows']:
+            for mw in r['words']:
+                w_idx = mw['idx']
+                w_start = mw['start']
+                w_dur = max(0.06, mw['duration'])
+                word_x = mw['x']
+                word_y = hero_start_y + mw['y']
+                cx_word = mw['cx']
+                cy_word = hero_start_y + mw['cy']
+
+                self.layout_word.set_text(mw['text'], -1)
 
                 if is_rap:
                     # =========================================================
                     # FAST / RAP MODE: Intensity-Reactive Kinetic Typography Edit
                     # =========================================================
-                    if w_start <= cur_t < w_end:
-                        # ACTIVE WORD GETS BIG - Intensity Driven!
-                        p = (cur_t - w_start) / w_dur
-                        pop = max(0.0, 1.0 - (p * 3.2))
-                        # Scale directly scales with intensity of the word spoken!
-                        intensity_boost = 0.16 + (energy * 0.38)
+                    if w_idx == active_w_idx:
+                        elapsed = max(0.0, cur_t - w_start)
+                        p = min(1.0, elapsed / max(0.18, w_dur * 0.85))
+                        pop = max(0.0, 1.0 - p)
+
+                        # Kinetic scale & lift driven by sound intensity
+                        intensity_boost = 0.12 + (energy * 0.28)
                         scale = 1.0 + (intensity_boost * pop)
-                        chroma = (1.5 + energy * 3.5) * pop
+                        lift = 4.0 * pop
+                        chroma = (1.2 + energy * 2.8) * pop
+
+                        # Kinetic vertical motion blur streak trailing behind upward lift
+                        if pop > 0.10:
+                            for t_frac, t_op in [(0.40, 0.30), (0.75, 0.16)]:
+                                t_lift = lift * (1.0 - t_frac)
+                                t_s = 1.0 + (intensity_boost * pop * (1.0 - t_frac * 0.4))
+                                cr.save()
+                                cr.translate(cx_word, cy_word - t_lift)
+                                cr.scale(t_s, t_s)
+                                cr.translate(-cx_word, -(cy_word - t_lift))
+                                cr.set_source_rgba(0.55, 0.80, 1.0, t_op * pop)
+                                cr.move_to(cx_word - (mw['pw'] / 2.0), (cy_word - t_lift) - (mw['ph'] / 2.0))
+                                PangoCairo.show_layout(cr, self.layout_word)
+                                cr.restore()
 
                         cr.save()
-                        cr.translate(cx_word, cy_word)
+                        cr.translate(cx_word, cy_word - lift)
                         cr.scale(scale, scale)
-                        cr.translate(-cx_word, -cy_word)
+                        cr.translate(-cx_word, -(cy_word - lift))
 
-                        draw_x = cx_word - (mw["pw"] / 2.0)
-                        draw_y = cy_word - (mw["ph"] / 2.0)
+                        draw_x = cx_word - (mw['pw'] / 2.0)
+                        draw_y = (cy_word - lift) - (mw['ph'] / 2.0)
 
                         if chroma > 0.4:
-                            cr.set_source_rgba(0.0, 0.95, 1.0, 0.45 * pop)
+                            cr.set_source_rgba(0.0, 0.95, 1.0, 0.40 * pop)
                             cr.move_to(draw_x - chroma, draw_y)
                             PangoCairo.show_layout(cr, self.layout_word)
 
-                            cr.set_source_rgba(1.0, 0.20, 0.65, 0.50 * pop)
+                            cr.set_source_rgba(1.0, 0.20, 0.65, 0.45 * pop)
                             cr.move_to(draw_x + chroma, draw_y)
                             PangoCairo.show_layout(cr, self.layout_word)
 
@@ -770,30 +850,30 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         cr.move_to(draw_x, draw_y)
                         PangoCairo.show_layout(cr, self.layout_word)
                         cr.restore()
-                    elif cur_t >= w_end:
-                        # Spoken in sentence
-                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.88)
+
+                    elif w_idx < active_w_idx:
+                        # Spoken in sentence: Radiant white
+                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.92)
                         cr.move_to(word_x, word_y)
                         PangoCairo.show_layout(cr, self.layout_word)
                     else:
-                        # Upcoming in sentence
-                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.35)
+                        # Upcoming in sentence: Calm dimmed preview with subtle cool tint
+                        cr.set_source_rgba(0.75, 0.88, 1.0, 0.32)
                         cr.move_to(word_x, word_y)
                         PangoCairo.show_layout(cr, self.layout_word)
+
                 else:
                     # =========================================================
-                    # CALM / SLOW MODE: Apple Music Silk Continuous Luminescence
+                    # CALM / SLOW MODE: Apple Music Continuous Luminescence
                     # =========================================================
-                    if cur_t < w_start:
-                        # Upcoming word (calm dimmed preview)
-                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.36)
-                    elif cur_t >= w_end:
-                        # Spoken word (pure glowing radiant white)
-                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.96)
+                    if w_idx > active_w_idx:
+                        cr.set_source_rgba(0.75, 0.88, 1.0, 0.34)
+                    elif w_idx < active_w_idx:
+                        cr.set_source_rgba(1.0, 1.0, 1.0, 0.95)
                     else:
-                        # Active word being sung: silky continuous alpha fill
-                        p = (cur_t - w_start) / w_dur
-                        alpha = 0.36 + (p * 0.60)
+                        elapsed = max(0.0, cur_t - w_start)
+                        p = min(1.0, elapsed / w_dur)
+                        alpha = 0.34 + (p * 0.62)
                         cr.set_source_rgba(1.0, 1.0, 1.0, alpha)
 
                     cr.move_to(word_x, word_y)
@@ -804,25 +884,28 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         # ---------------------------------------------------------------------
         if active_idx + 1 < len(self.kinetic_lines):
             next_line = self.kinetic_lines[active_idx + 1]
-            desc = Pango.FontDescription("Google Sans Flex 17")
-            desc.set_weight(Pango.Weight.BOLD)
+            desc = Pango.FontDescription('Google Sans Flex Bold 16')
             self.layout_ctx.set_font_description(desc)
             self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
             self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-            self.layout_ctx.set_wrap(Pango.WrapMode.WORD_CHAR)
             self.layout_ctx.set_text(next_line['text'], -1)
-            
-            next_y = hero_end_y + 24.0
+
+            next_y = hero_end_y + 22.0
             if next_y < h - 10:
-                next_alpha = min(0.28, max(0.06, (h - 10.0 - next_y) / 40.0 * 0.28))
-                cr.set_source_rgba(1.0, 1.0, 1.0, next_alpha)
+                next_alpha = min(0.32, max(0.06, (h - 10.0 - next_y) / 40.0 * 0.32))
+                # Faded next line: Soft sky-blue tint + directional motion blur
+                if has_motion_blur:
+                    cr.set_source_rgba(0.55, 0.78, 1.0, next_alpha * 0.35)
+                    cr.move_to(24.0, next_y - blur_v * 0.5)
+                    PangoCairo.show_layout(cr, self.layout_ctx)
+                cr.set_source_rgba(0.55, 0.78, 1.0, next_alpha)
                 cr.move_to(24.0, next_y)
                 PangoCairo.show_layout(cr, self.layout_ctx)
 
+        self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
         return False
 
 
-# ==============================================================================
 # Main Zenify Application Window
 # ==============================================================================
 class StarkifyApp(Gtk.Window):
@@ -911,7 +994,7 @@ class StarkifyApp(Gtk.Window):
         if hasattr(self, "showcase_scrubber"):
             self.showcase_scrubber.set_accent_rgb(p_rgb)
         if hasattr(self, "lyrics_canvas"):
-            self.lyrics_canvas.set_accent_rgb(p_rgb)
+            self.lyrics_canvas.set_palette(p_rgb, s_rgb)
         if hasattr(self, "docked_scrubber"):
             self.docked_scrubber.set_accent_rgb(p_rgb)
 
@@ -1133,8 +1216,8 @@ class StarkifyApp(Gtk.Window):
         self._last_loaded_track_key = key
 
         def _worker():
-            lines, is_synced, _ = fetch_lyrics(title, artist, duration)
-            GLib.idle_add(self.lyrics_canvas.set_lyrics, lines, is_synced)
+            lines, is_synced, raw_text, words = fetch_lyrics(title, artist, duration)
+            GLib.idle_add(self.lyrics_canvas.set_lyrics, lines, is_synced, raw_text, words)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -1782,6 +1865,21 @@ class StarkifyApp(Gtk.Window):
             if not isinstance(self.get_focus(), Gtk.Entry):
                 self.player.seek(self.player.state.get("position", 0) + 5)
                 return True
+        # Lyric Sync Offset Nudge: [ / ] (coarse 0.5s), { / } (fine 0.1s), 0 (reset)
+        elif val in (Gdk.KEY_bracketleft, Gdk.KEY_braceleft):
+            if not isinstance(self.get_focus(), Gtk.Entry):
+                delta = -0.1 if val == Gdk.KEY_braceleft else -0.5
+                self.lyrics_canvas.nudge_offset(delta)
+                return True
+        elif val in (Gdk.KEY_bracketright, Gdk.KEY_braceright):
+            if not isinstance(self.get_focus(), Gtk.Entry):
+                delta = 0.1 if val == Gdk.KEY_braceright else 0.5
+                self.lyrics_canvas.nudge_offset(delta)
+                return True
+        elif val == Gdk.KEY_0:
+            if not isinstance(self.get_focus(), Gtk.Entry):
+                self.lyrics_canvas.reset_offset()
+                return True
         return False
 
     def _hide_or_quit(self):
@@ -1815,6 +1913,30 @@ class StarkifyApp(Gtk.Window):
                         GLib.idle_add(self.set_mode, "player")
                     elif data == "mode_browser":
                         GLib.idle_add(self.set_mode, "browser")
+                    elif data.startswith("nudge "):
+                        try:
+                            delta = float(data.split(" ", 1)[1])
+                            GLib.idle_add(self.lyrics_canvas.nudge_offset, delta)
+                        except Exception:
+                            pass
+                    elif data == "reset_offset":
+                        GLib.idle_add(self.lyrics_canvas.reset_offset)
+                    elif data.startswith("seek "):
+                        try:
+                            pos = float(data.split(" ", 1)[1])
+                            GLib.idle_add(self.player.seek, pos)
+                        except Exception:
+                            pass
+                    elif data.startswith("play_track "):
+                        try:
+                            parts = data.split(" ", 1)[1].split("|")
+                            t_title = parts[0]
+                            t_artist = parts[1] if len(parts) > 1 else ""
+                            t_art = parts[2] if len(parts) > 2 else ""
+                            t_yt = parts[3] if len(parts) > 3 else ""
+                            GLib.idle_add(self._on_play_track, {"title": t_title, "artist": t_artist, "art_url": t_art, "yt_id": t_yt})
+                        except Exception:
+                            pass
                     conn.close()
                 except Exception:
                     pass
