@@ -559,3 +559,63 @@ scale slider {
     min-height: 9px;
     margin: -3px;
 }
+
+/* =============================================================================
+   Lyric Animation Preset Menu & Toolbar
+   ============================================================================= */
+.stark-lyrics-toolbar {
+    padding: 6px 14px 2px 14px;
+    background: transparent;
+}
+
+.stark-lyrics-tag {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.40);
+    letter-spacing: 0.6px;
+}
+
+.stark-lyrics-style-btn {
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 3px 12px;
+    min-height: 26px;
+}
+
+.stark-lyrics-style-btn:hover {
+    background-color: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+menu.stark-style-menu {
+    background-color: rgba(18, 20, 26, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 6px;
+}
+
+menu.stark-style-menu menuitem {
+    padding: 7px 14px;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+menu.stark-style-menu menuitem:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+/* Minimalist Bottom Player Bar for Constellation Mode */
+.stark-constellation-bar {
+    background-color: rgba(14, 16, 22, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 6px 16px;
+}

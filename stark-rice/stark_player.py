@@ -517,6 +517,14 @@ class ListeningHistoryManager:
         if not clean_t or clean_t in ("Nothing Playing", "Track"):
             return
 
+        if not art_url or "2a96cbd8" in art_url or duration <= 0:
+            meta = StarkPlayerBackend.resolve_track_metadata(clean_t, artist)
+            if meta:
+                if meta.get("art_url") and ("2a96cbd8" in art_url or not art_url):
+                    art_url = meta["art_url"]
+                if meta.get("duration", 0) > 0 and duration <= 0:
+                    duration = meta["duration"]
+
         now = int(time.time())
         entry = {
             "title": clean_t,
@@ -654,6 +662,24 @@ class ListeningHistoryManager:
                     seen.add(k)
                     mix.insert(0, sp_trk)
 
+        # Batch resolve missing cover art & duration using Spotify & store APIs
+        def _resolve_one(t):
+            art = t.get("art_url", "")
+            dur = t.get("duration", 0)
+            if not art or "2a96cbd8" in art or dur <= 0:
+                meta = StarkPlayerBackend.resolve_track_metadata(t.get("title", ""), t.get("artist", ""))
+                if meta:
+                    if meta.get("art_url") and ("2a96cbd8" in art or not art):
+                        t["art_url"] = meta["art_url"]
+                    if meta.get("duration", 0) > 0 and dur <= 0:
+                        t["duration"] = meta["duration"]
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(_resolve_one, mix))
+        except Exception:
+            pass
+
         self.data["daily_mix"] = mix
         self.data["daily_mix_date"] = time.strftime("%Y-%m-%d")
         self._save()
@@ -668,6 +694,97 @@ class ListeningHistoryManager:
 
 
 class StarkPlayerBackend:
+    _meta_cache = {}
+
+    @classmethod
+    def resolve_track_metadata(cls, title, artist):
+        """
+        Resolves official track metadata (640x640 album artwork URL + duration in seconds).
+        Primary: Spotify (spotifyscraper)
+        Secondary: iTunes Store API
+        Tertiary: YouTube Music API (YTMusic)
+        Thread-safe, cached in-memory.
+        """
+        if not title:
+            return None
+        clean_t = sanitize_title(title, artist)
+        clean_a = artist.strip() if artist else ""
+        cache_key = f"{clean_t.lower()}__{clean_a.lower()}"
+        if cache_key in cls._meta_cache:
+            return cls._meta_cache[cache_key]
+
+        meta = None
+
+        # 1. Primary: Spotify via spotifyscraper
+        try:
+            from spotify_scraper import SpotifyClient
+            with SpotifyClient() as client:
+                query = f"{clean_t} {clean_a}".strip()
+                res = client.search(query, types=("track",), limit=1)
+                if res.tracks:
+                    t = res.tracks[0]
+                    img = ""
+                    if t.images:
+                        for im in t.images:
+                            if "b273" in im.url or im.width == 640:
+                                img = im.url
+                                break
+                        if not img:
+                            img = t.images[-1].url
+                    elif t.album and t.album.images:
+                        img = t.album.images[-1].url
+                    dur = (t.duration_ms // 1000) if t.duration_ms else 0
+                    if img or dur > 0:
+                        meta = {"art_url": img, "duration": dur, "source": "spotify"}
+        except Exception:
+            pass
+
+        # 2. Secondary: iTunes Store API
+        if not meta or not meta.get("art_url") or meta.get("duration", 0) <= 0:
+            try:
+                search_term = quote_plus(f"{clean_t} {clean_a}".strip())
+                url = f"https://itunes.apple.com/search?term={search_term}&media=music&entity=song&limit=1"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=3.5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if data.get("resultCount", 0) > 0:
+                        item = data["results"][0]
+                        art = item.get("artworkUrl100", "").replace("100x100bb", "600x600bb")
+                        dur = item.get("trackTimeMillis", 0) // 1000
+                        if meta:
+                            if not meta.get("art_url"):
+                                meta["art_url"] = art
+                            if meta.get("duration", 0) <= 0:
+                                meta["duration"] = dur
+                        else:
+                            meta = {"art_url": art, "duration": dur, "source": "itunes"}
+            except Exception:
+                pass
+
+        # 3. Tertiary: YouTube Music API
+        if not meta or not meta.get("art_url") or meta.get("duration", 0) <= 0:
+            try:
+                yt = YTMusic()
+                res = yt.search(f"{clean_t} {clean_a}", filter="songs")
+                if res:
+                    item = res[0]
+                    thumbnails = item.get("thumbnails", [])
+                    art = thumbnails[-1]["url"] if thumbnails else ""
+                    dur_sec = item.get("duration_seconds", 0)
+                    if meta:
+                        if not meta.get("art_url"):
+                            meta["art_url"] = art
+                        if meta.get("duration", 0) <= 0:
+                            meta["duration"] = dur_sec
+                    else:
+                        meta = {"art_url": art, "duration": dur_sec, "source": "ytmusic"}
+            except Exception:
+                pass
+
+        if meta:
+            cls._meta_cache[cache_key] = meta
+        return meta
+
     def __init__(self):
         self._ensure_mpv()
         self.history_mgr = ListeningHistoryManager()
@@ -769,16 +886,28 @@ class StarkPlayerBackend:
         except Exception as e:
             return {"error": str(e)}
 
-    def _cache_art_url(self, url):
-        if not url or not url.startswith("http"):
+    def _cache_art_url(self, url, title="", artist=""):
+        if not url or not url.startswith("http") or "2a96cbd8" in url:
+            if title and artist:
+                meta = self.resolve_track_metadata(title, artist)
+                if meta and meta.get("art_url") and "2a96cbd8" not in meta["art_url"]:
+                    url = meta["art_url"]
+        if not url or not url.startswith("http") or "2a96cbd8" in url:
             return os.path.join(ASSETS_DIR, "after_dark.png")
         url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
         dest_path = os.path.join(THUMB_CACHE_DIR, f"{url_hash}.jpg")
-        if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+        if "075f428c" in url_hash:
+            if os.path.exists(dest_path):
+                try:
+                    os.remove(dest_path)
+                except Exception:
+                    pass
+            return os.path.join(ASSETS_DIR, "after_dark.png")
+        if os.path.exists(dest_path) and os.path.getsize(dest_path) > 300:
             return dest_path
         try:
-            r = requests.get(url, timeout=3.0)
-            if r.status_code == 200:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4.0)
+            if r.status_code == 200 and len(r.content) > 300:
                 with open(dest_path, "wb") as f:
                     f.write(r.content)
                 return dest_path
@@ -808,8 +937,16 @@ class StarkPlayerBackend:
                 engine = self.history_mgr.yt_engine
                 if engine and engine.yt:
                     s = engine.yt.search(f"{clean_t} {artist}", filter="songs")
-                    if s and s[0].get("videoId"):
-                        audio_yt_id = s[0].get("videoId")
+                    if s:
+                        clean_target = re.sub(r'[^a-zA-Z0-9]', '', clean_t).lower()
+                        for cand in s:
+                            cand_title = re.sub(r'[^a-zA-Z0-9]', '', cand.get("title", "")).lower()
+                            if clean_target in cand_title or cand_title in clean_target:
+                                if cand.get("videoId"):
+                                    audio_yt_id = cand["videoId"]
+                                    break
+                        if not audio_yt_id and s[0].get("videoId"):
+                            audio_yt_id = s[0].get("videoId")
             except Exception:
                 pass
 
@@ -823,15 +960,12 @@ class StarkPlayerBackend:
         self.send_mpv_cmd(["loadfile", media_src, "replace"])
         self.send_mpv_cmd(["set_property", "pause", False])
 
-        if not art_url:
-            try:
-                found = self.search_official_catalog(f"{clean_t} {artist}", limit=1)
-                if found and found[0].get("art_url"):
-                    art_url = found[0].get("art_url")
-            except Exception:
-                pass
+        if not art_url or "2a96cbd8" in art_url:
+            meta = self.resolve_track_metadata(clean_t, artist)
+            if meta and meta.get("art_url") and "2a96cbd8" not in meta["art_url"]:
+                art_url = meta["art_url"]
 
-        art_local = self._cache_art_url(art_url)
+        art_local = self._cache_art_url(art_url, clean_t, artist)
         self.state["title"] = clean_t
         self.state["artist"] = artist
         self.state["art_url"] = art_url

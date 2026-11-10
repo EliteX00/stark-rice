@@ -17,9 +17,16 @@ CACHE_DIR = os.path.expanduser("~/.config/stark-rice/assets/lyrics_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
+SECTION_MARKER_REGEX = re.compile(
+    r'^[\[(]?(intro|verse|chorus|hook|bridge|outro|instrumental|pre-chorus|breakdown|interlude)[\d\s:.]*[\])]?$',
+    re.IGNORECASE
+)
+
+
 def parse_lrc(lrc_text):
     """
     Parses LRC format into a list of tuples: [(timestamp_seconds, text_line), ...]
+    Filters out non-vocal section headers ([Intro], [Chorus], etc.) to prevent premature intro dismissals.
     """
     if not lrc_text:
         return []
@@ -32,7 +39,7 @@ def parse_lrc(lrc_text):
             mins = int(m.group(1))
             secs = float(m.group(2))
             text = m.group(3).strip()
-            if text:
+            if text and not SECTION_MARKER_REGEX.match(text):
                 lines.append((mins * 60 + secs, text))
     lines.sort(key=lambda x: x[0])
     return lines
@@ -170,6 +177,8 @@ def parse_yrc_lines(yrc_raw):
             for w in line_words:
                 w.pop('ended_with_space', None)
             line_text = ' '.join(w['text'] for w in line_words)
+            if SECTION_MARKER_REGEX.match(line_text):
+                continue
             wps = len(line_words) / max(0.5, l_dur)
             k_lines.append({
                 'start': l_start,
