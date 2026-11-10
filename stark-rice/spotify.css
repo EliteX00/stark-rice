@@ -92,13 +92,13 @@ window.stark-spotify-window {
    MODE 1: APPLE MUSIC SYNCHRONIZED KINETIC LYRICS & SHOWCASE
    ============================================================================= */
 .stark-apple-container {
-    padding: 24px 32px 24px 32px;
+    padding: 20px 24px 20px 24px;
 }
 
-/* Left Showcase Column */
+/* Left Showcase Column (Compact for maximum lyrics canvas space) */
 .stark-showcase-left {
-    min-width: 320px;
-    margin-right: 20px;
+    min-width: 250px;
+    margin-right: 24px;
 }
 
 /* Album Art Showcase Card */
