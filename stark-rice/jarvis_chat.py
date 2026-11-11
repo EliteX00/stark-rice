@@ -277,10 +277,15 @@ def speak_text(text, wait=False):
             mpv_cmd.append("--af=lavfi=[aecho=1.0:0.9:30:0.2]")
         mpv_cmd.append(SPEECH_FILE)
 
+        current_speech_proc = subprocess.Popen(mpv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if wait:
-            subprocess.run(mpv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            current_speech_proc = subprocess.Popen(mpv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                current_speech_proc.wait()
+            except KeyboardInterrupt:
+                current_speech_proc.terminate()
+                raise
+    except KeyboardInterrupt:
+        raise
     except Exception as e:
         print(f"{GRAY}[Voice Warning: {e}]{RESET}")
 
@@ -478,12 +483,13 @@ def interactive_session():
             # Show reply
             print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {reply}\n")
             
-            # Execute action if present
+            # Speak first: if an action is pending, wait for vocal delivery to finish before executing
             if action:
+                speak_text(reply, wait=True)
+                time.sleep(0.12)
                 execute_action(action)
-                
-            # Speak reply in background
-            speak_text(reply, wait=False)
+            else:
+                speak_text(reply, wait=False)
         except Exception as e:
             print(f"\n{RED}[Communication Error: {e}]{RESET}\n")
 
@@ -508,9 +514,11 @@ def main():
         user_query = " ".join(args)
         reply, action = query_jarvis(user_query, [])
         print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {reply}")
-        if action:
-            execute_action(action)
+        # Wait for TTS to finish vocalization before executing system action
         speak_text(reply, wait=True)
+        if action:
+            time.sleep(0.12)
+            execute_action(action)
         return
 
     interactive_session()

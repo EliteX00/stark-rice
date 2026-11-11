@@ -12,20 +12,20 @@ sleep 0.5
 
 # 1. Wallpaper
 if ! pgrep -f "swaybg" > /dev/null; then
-    nohup /home/elitex/.local/bin/swaybg -i "$DIR/wallpaper.png" -m fill > /dev/null 2>&1 &
+    setsid /home/elitex/.local/bin/swaybg -i "$DIR/wallpaper.png" -m fill > /dev/null 2>&1 &
 fi
 
 # 2. Waybar
-nohup /home/elitex/.local/bin/waybar > /dev/null 2>&1 &
+setsid /home/elitex/.local/bin/waybar > /dev/null 2>&1 &
 
 # 3. Stark Desktop Widgets (Clock, Sysmon, Zenify Music Card, Quote)
-nohup python3 "$DIR/stark_widgets.py" > /dev/null 2>&1 &
+setsid python3 "$DIR/stark_widgets.py" > /dev/null 2>&1 &
 
 # 4. Blue light filter daemon
-nohup python3 "$DIR/stark_sunset.py" --daemon > /dev/null 2>&1 &
+setsid python3 "$DIR/stark_sunset.py" --daemon > /dev/null 2>&1 &
 
 # 5. Zenify Discord Rich Presence daemon
-nohup python3 "$DIR/zenify_discord_rpc.py" > /dev/null 2>&1 &
+setsid python3 "$DIR/zenify_discord_rpc.py" > /dev/null 2>&1 &
 
 # 6. J.A.R.V.I.S. System Voice Greeting (if enabled in jarvis_config.json)
 if [ -f "$DIR/jarvis_config.json" ]; then
