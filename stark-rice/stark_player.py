@@ -34,6 +34,7 @@ HISTORY_FILE = os.path.join(CONFIG_DIR, "listening_history.json")
 PLAYLIST_CACHE_FILE = os.path.join(CONFIG_DIR, "spotify_cache.json")
 AUTH_FILE = os.path.join(CONFIG_DIR, "ytmusic_auth.json")
 QUEUE_CACHE_FILE = os.path.join(CONFIG_DIR, "recommendation_queue.json")
+STREAM_CACHE_FILE = os.path.join(CONFIG_DIR, "assets", "stream_cache.json")
 LASTFM_AUTH_FILE = os.path.join(CONFIG_DIR, "lastfm_auth.json")
 LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY", "")
 if not LASTFM_API_KEY and os.path.exists(LASTFM_AUTH_FILE):
@@ -804,10 +805,82 @@ class StarkPlayerBackend:
         self.queue_index = -1
         self._last_played_title = ""
         self._was_playing = False
+        self._stream_cache = {}
+        self._prefetched_next_track = False
         self._load_cached_state()
+
+        # Background pre-load paused track on startup so clicking play is instantaneous
+        if self.state.get("title") not in ("Nothing Playing", "Ready to Play"):
+            threading.Thread(target=self._preload_paused_track, daemon=True).start()
 
         threading.Thread(target=self._autoplay_watcher, daemon=True).start()
         self._ensure_discord_rpc()
+
+    def _get_cached_stream_url(self, yt_id):
+        if not yt_id:
+            return None
+        now = time.time()
+        if hasattr(self, "_stream_cache") and yt_id in self._stream_cache:
+            entry = self._stream_cache[yt_id]
+            if entry.get("expires", 0) > now + 120:
+                return entry.get("url")
+        try:
+            if os.path.exists(STREAM_CACHE_FILE):
+                with open(STREAM_CACHE_FILE, "r") as f:
+                    cache = json.load(f)
+                    self._stream_cache = cache
+                    if yt_id in cache and cache[yt_id].get("expires", 0) > now + 120:
+                        return cache[yt_id].get("url")
+        except Exception:
+            pass
+        return None
+
+    def _save_cached_stream_url(self, yt_id, url, expires):
+        if not hasattr(self, "_stream_cache"):
+            self._stream_cache = {}
+        self._stream_cache[yt_id] = {"url": url, "expires": expires}
+        try:
+            with open(STREAM_CACHE_FILE, "w") as f:
+                json.dump(self._stream_cache, f)
+        except Exception:
+            pass
+
+    def _preload_paused_track(self):
+        """Pre-loads saved track in mpv paused at start_pos on startup for instant zero-latency playback."""
+        try:
+            time.sleep(0.5)
+            self._ensure_mpv()
+            idle_res = self.send_mpv_cmd(["get_property", "idle-active"])
+            path_res = self.send_mpv_cmd(["get_property", "path"])
+            # Only preload if mpv is currently idle and nothing is loaded
+            if not idle_res.get("data", False) and path_res.get("data"):
+                return
+
+            title = self.state.get("title", "")
+            artist = self.state.get("artist", "")
+            yt_id = self.state.get("yt_id", "")
+            pos = float(self.state.get("position", 0.0))
+
+            if not yt_id and title:
+                clean_t = sanitize_title(title, artist)
+                engine = self.history_mgr.yt_engine
+                if engine and engine.yt:
+                    s = engine.yt.search(f"{clean_t} {artist}", filter="songs")
+                    if s and s[0].get("videoId"):
+                        yt_id = s[0]["videoId"]
+                        self.state["yt_id"] = yt_id
+
+            if yt_id:
+                cached_stream = self._get_cached_stream_url(yt_id)
+                media_src = cached_stream if cached_stream else f"https://www.youtube.com/watch?v={yt_id}"
+                if pos > 0.5:
+                    self.send_mpv_cmd(["set_property", "start", str(round(pos, 2))])
+                self.send_mpv_cmd(["loadfile", media_src, "replace"])
+                self.send_mpv_cmd(["set_property", "pause", True])
+                time.sleep(1.5)
+                self.send_mpv_cmd(["set_property", "start", "none"])
+        except Exception:
+            pass
 
     def _ensure_discord_rpc(self):
         try:
@@ -838,8 +911,13 @@ class StarkPlayerBackend:
             "--no-video",
             "--no-audio-display",
             "--no-terminal",
+            "--cache=yes",
+            "--cache-pause=no",
+            "--cache-pause-initial=no",
+            "--audio-buffer=0.2",
+            "--stream-buffer-size=64k",
+            "--demuxer-readahead-secs=20",
             "--ytdl-format=bestaudio/best",
-            "--ytdl-raw-options=extractor-args=youtube:player_client=android",
             "--volume=80",
             f"--input-ipc-server={SOCKET_PATH}"
         ]
@@ -915,10 +993,11 @@ class StarkPlayerBackend:
             pass
         return os.path.join(ASSETS_DIR, "after_dark.png")
 
-    def play_track(self, title, artist, art_url="", yt_id=""):
+    def play_track(self, title, artist, art_url="", yt_id="", start_pos=0.0):
         """Plays track via YouTube audio stream in background while keeping Spotify clean metadata."""
         self._ensure_mpv()
         clean_t = sanitize_title(title, artist)
+        self._prefetched_next_track = False
 
         # Record watch time affinity on the track that was just playing
         prev_title = self.state.get("title", "")
@@ -950,15 +1029,45 @@ class StarkPlayerBackend:
             except Exception:
                 pass
 
-        if audio_yt_id:
-            media_src = f"https://www.youtube.com/watch?v={audio_yt_id}"
-            actual_yt_id = audio_yt_id
+        actual_yt_id = audio_yt_id or yt_id
+        cached_stream = self._get_cached_stream_url(actual_yt_id) if actual_yt_id else None
+
+        if cached_stream:
+            media_src = cached_stream
+        elif actual_yt_id:
+            media_src = f"https://www.youtube.com/watch?v={actual_yt_id}"
+            # Extract and cache direct stream URL in background for instant playback/replays
+            def _bg_extract(y_id):
+                try:
+                    import yt_dlp
+                    ydl_opts = {'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True, 'skip_download': True}
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        inf = ydl.extract_info(f"https://www.youtube.com/watch?v={y_id}", download=False)
+                        s_url = inf.get("url")
+                        if s_url:
+                            m_exp = re.search(r'expire=(\d+)', s_url)
+                            exp_ts = float(m_exp.group(1)) if m_exp else (time.time() + 18000)
+                            self._save_cached_stream_url(y_id, s_url, exp_ts)
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_extract, args=(actual_yt_id,), daemon=True).start()
         else:
             media_src = f"ytdl://ytsearch1:{clean_t} {artist} audio"
-            actual_yt_id = yt_id
+
+        # Apply start position if resuming paused track
+        if start_pos and start_pos > 0.5:
+            self.send_mpv_cmd(["set_property", "start", str(round(start_pos, 2))])
+        else:
+            self.send_mpv_cmd(["set_property", "start", "none"])
 
         self.send_mpv_cmd(["loadfile", media_src, "replace"])
         self.send_mpv_cmd(["set_property", "pause", False])
+
+        if start_pos and start_pos > 0.5:
+            def _reset_start():
+                time.sleep(2.0)
+                self.send_mpv_cmd(["set_property", "start", "none"])
+            threading.Thread(target=_reset_start, daemon=True).start()
 
         if not art_url or "2a96cbd8" in art_url:
             meta = self.resolve_track_metadata(clean_t, artist)
@@ -972,8 +1081,8 @@ class StarkPlayerBackend:
         self.state["art_path"] = art_local
         self.state["yt_id"] = actual_yt_id
         self.state["is_playing"] = True
-        self.state["position"] = 0.0
-        self.state["progress"] = 0.0
+        self.state["position"] = float(start_pos) if start_pos else 0.0
+        self.state["progress"] = (start_pos / self.state["duration"]) if self.state.get("duration", 0) > 0 else 0.0
         self.state["autoplay"] = self.history_mgr.autoplay_enabled
         self._save_state()
 
@@ -1000,9 +1109,35 @@ class StarkPlayerBackend:
             pass
 
     def toggle_play(self):
-        res = self.send_mpv_cmd(["cycle", "pause"])
+        self._ensure_mpv()
+
+        # Check if mpv is idle or has no file loaded (e.g. paused before PC reboot)
+        path_res = self.send_mpv_cmd(["get_property", "path"])
+        cur_path = path_res.get("data")
+        idle_res = self.send_mpv_cmd(["get_property", "idle-active"])
+        is_idle = bool(idle_res.get("data", False))
+
+        if is_idle or not cur_path:
+            title = self.state.get("title", "")
+            artist = self.state.get("artist", "")
+            if title and title not in ("Nothing Playing", "Ready to Play"):
+                pos = self.state.get("position", 0.0)
+                art_url = self.state.get("art_url", "")
+                yt_id = self.state.get("yt_id", "")
+                self.state["is_playing"] = True
+                self._save_state()
+                def _resume_track():
+                    self.play_track(title, artist, art_url, yt_id, start_pos=pos)
+                threading.Thread(target=_resume_track, daemon=True).start()
+                return True
+            else:
+                nxt = self.play_next()
+                return bool(nxt)
+
+        # Track is active in mpv: normal instant toggle
+        self.send_mpv_cmd(["cycle", "pause"])
         p_res = self.send_mpv_cmd(["get_property", "pause"])
-        is_paused = p_res.get("data", False)
+        is_paused = bool(p_res.get("data", False))
         self.state["is_playing"] = not is_paused
         self._save_state()
         return self.state["is_playing"]
@@ -1059,13 +1194,18 @@ class StarkPlayerBackend:
             pos_res = self.send_mpv_cmd(["get_property", "time-pos"])
             dur_res = self.send_mpv_cmd(["get_property", "duration"])
             pause_res = self.send_mpv_cmd(["get_property", "pause"])
+            idle_res = self.send_mpv_cmd(["get_property", "idle-active"])
+
+            is_idle = bool(idle_res.get("data", False))
+            if is_idle:
+                self.state["is_playing"] = False
+            elif "data" in pause_res and isinstance(pause_res["data"], bool):
+                self.state["is_playing"] = not pause_res["data"]
 
             if "data" in pos_res and isinstance(pos_res["data"], (int, float)):
                 self.state["position"] = float(pos_res["data"])
             if "data" in dur_res and isinstance(dur_res["data"], (int, float)):
                 self.state["duration"] = float(dur_res["data"])
-            if "data" in pause_res and isinstance(pause_res["data"], bool):
-                self.state["is_playing"] = not pause_res["data"]
 
             if self.state.get("duration", 0) > 0:
                 self.state["progress"] = min(1.0, max(0.0, self.state["position"] / self.state["duration"]))
@@ -1089,6 +1229,31 @@ class StarkPlayerBackend:
                 pos = float(pos_res.get("data", 0)) if isinstance(pos_res.get("data"), (int, float)) else 0.0
                 dur = float(dur_res.get("data", 0)) if isinstance(dur_res.get("data"), (int, float)) else 0.0
                 is_idle = bool(idle_res.get("data", False))
+
+                # Prefetch next track's direct stream URL in background at 15s into current song
+                if pos > 15.0 and not getattr(self, "_prefetched_next_track", False):
+                    self._prefetched_next_track = True
+                    def _prefetch():
+                        try:
+                            curr_title = self.state.get("title", "")
+                            curr_artist = self.state.get("artist", "")
+                            curr_yt = self.state.get("yt_id", "")
+                            rec = self.history_mgr.recommend_autoplay_track(curr_title, curr_artist, curr_yt)
+                            if rec and rec.get("yt_id"):
+                                n_yt = rec["yt_id"]
+                                if not self._get_cached_stream_url(n_yt):
+                                    import yt_dlp
+                                    ydl_opts = {'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True, 'skip_download': True}
+                                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                        inf = ydl.extract_info(f"https://www.youtube.com/watch?v={n_yt}", download=False)
+                                        s_url = inf.get("url")
+                                        if s_url:
+                                            m_exp = re.search(r'expire=(\d+)', s_url)
+                                            exp_ts = float(m_exp.group(1)) if m_exp else (time.time() + 18000)
+                                            self._save_cached_stream_url(n_yt, s_url, exp_ts)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_prefetch, daemon=True).start()
 
                 # Safeguard: if idle occurs without actually playing the song (pos < 5), do NOT auto-skip loop!
                 if is_idle and self._was_playing and pos < 5.0 and dur == 0:
