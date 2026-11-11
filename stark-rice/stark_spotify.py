@@ -277,7 +277,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.raw_lines = []
         self.kinetic_lines = []
         self.is_synced = False
-        self.anim_style = "constellation"
+        self.anim_style = "apple_sing"
 
         self.active_line_idx = -1
         self.smooth_line_idx = 0.0
@@ -811,7 +811,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             cr.fill()
 
         # 2. Expanding Shockwave Rings (skip in constellation mode to keep cosmos clean)
-        current_style = STYLE_ALIASES.get(getattr(self, "anim_style", "constellation"), getattr(self, "anim_style", "constellation"))
+        current_style = STYLE_ALIASES.get(getattr(self, "anim_style", "apple_sing"), getattr(self, "anim_style", "apple_sing"))
         if current_style != "constellation":
             for sw in self.shockwaves:
                 cr.set_source_rgba(r_acc, g_acc, b_acc, sw['alpha'])
@@ -909,7 +909,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             else:
                 break
 
-        current_style = STYLE_ALIASES.get(getattr(self, "anim_style", "constellation"), getattr(self, "anim_style", "constellation"))
+        current_style = STYLE_ALIASES.get(getattr(self, "anim_style", "apple_sing"), getattr(self, "anim_style", "apple_sing"))
 
         # =====================================================================
         # MODE 1: CELESTIAL CONSTELLATION STAR MAP (Organic Criss-Cross Asterisms)
@@ -1674,10 +1674,10 @@ class StarkifyApp(Gtk.Window):
         # Style Menu Button
         self.btn_anim_style = Gtk.MenuButton()
         self.btn_anim_style.get_style_context().add_class("stark-lyrics-style-btn")
-        raw_saved = self.player.state.get("anim_style", "constellation")
+        raw_saved = self.player.state.get("anim_style", "apple_sing")
         saved_style = STYLE_ALIASES.get(raw_saved, raw_saved)
         if saved_style not in ANIMATION_STYLES:
-            saved_style = "constellation"
+            saved_style = "apple_sing"
         initial_info = ANIMATION_STYLES[saved_style]
         self.btn_anim_style.set_label(f"{initial_info['icon']}  {initial_info['name']}")
 
