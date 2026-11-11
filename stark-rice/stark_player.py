@@ -1143,7 +1143,13 @@ class StarkPlayerBackend:
         return self.state["is_playing"]
 
     def seek(self, position_seconds):
-        self.send_mpv_cmd(["seek", position_seconds, "absolute"])
+        pos = max(0.0, float(position_seconds))
+        self.send_mpv_cmd(["seek", pos, "absolute"])
+        self.state["position"] = pos
+        dur = self.state.get("duration", 0.0)
+        if dur > 0:
+            self.state["progress"] = min(1.0, max(0.0, pos / dur))
+        self._save_state()
 
     def play_next(self):
         """Advances to the next track using smart recommendation autoplay."""
@@ -1211,6 +1217,14 @@ class StarkPlayerBackend:
                 self.state["progress"] = min(1.0, max(0.0, self.state["position"] / self.state["duration"]))
 
             self.state["autoplay"] = self.history_mgr.autoplay_enabled
+
+            # Periodic background flush of playback metrics to music_state.json (every 2.0s)
+            now = time.time()
+            if not hasattr(self, "_last_metrics_save"):
+                self._last_metrics_save = 0.0
+            if (now - self._last_metrics_save) >= 2.0:
+                self._last_metrics_save = now
+                self._save_state()
         except Exception:
             pass
         return self.state

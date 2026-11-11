@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import json
+import socket
 import math
 import random
 import subprocess
@@ -770,8 +771,58 @@ class StarkMusicWidget(Gtk.Window):
         subprocess.Popen(["python3", self.spotify_script, "--toggle"])
         return False
 
+    def _query_mpv_state(self):
+        sock_path = "/tmp/stark_player.sock"
+        if not os.path.exists(sock_path):
+            return None
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(0.08)
+            s.connect(sock_path)
+            cmd = (
+                json.dumps({"command": ["get_property", "time-pos"]}) + "\n" +
+                json.dumps({"command": ["get_property", "duration"]}) + "\n" +
+                json.dumps({"command": ["get_property", "pause"]}) + "\n" +
+                json.dumps({"command": ["get_property", "idle-active"]}) + "\n"
+            )
+            s.sendall(cmd.encode("utf-8"))
+            data = b""
+            while True:
+                chunk = s.recv(2048)
+                if not chunk:
+                    break
+                data += chunk
+                if data.count(b"\n") >= 4:
+                    break
+            s.close()
+            lines = data.decode("utf-8", errors="ignore").strip().split("\n")
+            props = []
+            for line in lines:
+                try:
+                    res = json.loads(line)
+                    props.append(res.get("data"))
+                except Exception:
+                    props.append(None)
+            pos = props[0] if len(props) > 0 and isinstance(props[0], (int, float)) else None
+            dur = props[1] if len(props) > 1 and isinstance(props[1], (int, float)) else None
+            pause = props[2] if len(props) > 2 and isinstance(props[2], bool) else False
+            idle = props[3] if len(props) > 3 and isinstance(props[3], bool) else False
+            if idle:
+                return {"is_playing": False, "position": 0.0, "duration": 0.0, "progress": 0.0}
+            if dur is not None and dur > 0 and pos is not None:
+                return {
+                    "is_playing": not pause,
+                    "position": float(pos),
+                    "duration": float(dur),
+                    "progress": min(1.0, max(0.0, float(pos) / float(dur)))
+                }
+            return None
+        except Exception:
+            return None
+
     def update_state(self):
-        """Reads Zenify state from disk (called every 250ms)."""
+        """Reads Zenify state from disk and mpv IPC socket (called every 250ms)."""
+        # 1. Track metadata from state file
         if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r") as f:
@@ -793,12 +844,19 @@ class StarkMusicWidget(Gtk.Window):
                     if pix:
                         self.art_img.set_from_pixbuf(pix)
                         self.current_art_path = art_path
-
-                self.play_btn.set_label("⏸" if self.is_playing else "▶")
-                if abs(self.wave_bar.progress - self.target_progress) > 0.02:
-                    self.wave_bar.progress = self.target_progress
             except Exception:
                 pass
+
+        # 2. Query mpv directly for live, zero-latency playback position & status
+        mpv_st = self._query_mpv_state()
+        if mpv_st:
+            self.is_playing = mpv_st["is_playing"]
+            self.current_duration = mpv_st["duration"]
+            self.target_progress = mpv_st["progress"]
+
+        self.play_btn.set_label("⏸" if self.is_playing else "▶")
+        if abs(self.wave_bar.progress - self.target_progress) > 0.015:
+            self.wave_bar.progress = self.target_progress
 
     def vis_tick(self):
         """Ultra-smooth 50 FPS animation tick with CAVA audio FFT reaction and smooth lerp."""

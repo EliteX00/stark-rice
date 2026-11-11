@@ -142,13 +142,22 @@ class AppleMusicScrubber(Gtk.DrawingArea):
         super().__init__()
         self.on_seek_cb = on_seek_cb
         self.progress = 0.0
+        self._is_dragging = False
         self.accent_rgb = (255, 255, 255)
         self.set_size_request(260, height)
-        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.POINTER_MOTION_MASK)
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK |
+            Gdk.EventMask.BUTTON_RELEASE_MASK |
+            Gdk.EventMask.POINTER_MOTION_MASK
+        )
         self.connect("draw", self._on_draw)
-        self.connect("button-press-event", self._on_click)
+        self.connect("button-press-event", self._on_button_press)
+        self.connect("button-release-event", self._on_button_release)
+        self.connect("motion-notify-event", self._on_motion)
 
     def set_progress(self, prog):
+        if self._is_dragging:
+            return
         self.progress = max(0.0, min(1.0, prog))
         self.queue_draw()
 
@@ -156,10 +165,37 @@ class AppleMusicScrubber(Gtk.DrawingArea):
         self.accent_rgb = rgb
         self.queue_draw()
 
-    def _on_click(self, widget, event):
+    def _calc_pct(self, event_x):
         w = self.get_allocated_width()
         if w > 0:
-            pct = max(0.0, min(1.0, event.x / float(w))) * 100.0
+            return max(0.0, min(1.0, event_x / float(w))) * 100.0
+        return 0.0
+
+    def _on_button_press(self, widget, event):
+        if event.button == 1:
+            self._is_dragging = True
+            pct = self._calc_pct(event.x)
+            self.progress = pct / 100.0
+            self.queue_draw()
+            if self.on_seek_cb:
+                self.on_seek_cb(pct)
+            return True
+        return False
+
+    def _on_motion(self, widget, event):
+        if self._is_dragging:
+            pct = self._calc_pct(event.x)
+            self.progress = pct / 100.0
+            self.queue_draw()
+            return True
+        return False
+
+    def _on_button_release(self, widget, event):
+        if event.button == 1 and self._is_dragging:
+            self._is_dragging = False
+            pct = self._calc_pct(event.x)
+            self.progress = pct / 100.0
+            self.queue_draw()
             if self.on_seek_cb:
                 self.on_seek_cb(pct)
             return True
@@ -1701,7 +1737,12 @@ class StarkifyApp(Gtk.Window):
 
         # Minimalist Bottom Player Bar for Constellation Mode (Sides the big image, gives large canvas)
         self.constellation_bottom_bar = self._build_constellation_bottom_bar()
+        self.constellation_bottom_bar.show_all()
+        self.constellation_bottom_bar.set_no_show_all(True)
         player_root.pack_end(self.constellation_bottom_bar, False, False, 0)
+
+        self.left_col.show_all()
+        self.left_col.set_no_show_all(True)
 
         # Initial visibility: if constellation mode, hide left_col and show bottom bar
         is_constellation = (saved_style == "constellation")
@@ -2141,6 +2182,22 @@ class StarkifyApp(Gtk.Window):
         else:
             target_sec = pct_or_sec
         self.player.seek(target_sec)
+        if dur > 0:
+            prog = min(1.0, max(0.0, target_sec / dur))
+            self.showcase_scrubber.set_progress(prog)
+            self.docked_scrubber.set_progress(prog)
+            if hasattr(self, 'constellation_scrubber'):
+                self.constellation_scrubber.set_progress(prog)
+            elapsed_str = format_duration(target_sec)
+            remaining_str = format_remaining(dur, target_sec)
+            self.showcase_time_elapsed.set_label(elapsed_str)
+            self.showcase_time_remaining.set_label(remaining_str)
+            self.docked_cur_time.set_label(elapsed_str)
+            if hasattr(self, 'constellation_time_elapsed'):
+                self.constellation_time_elapsed.set_label(elapsed_str)
+                self.constellation_time_remaining.set_label(remaining_str)
+        if hasattr(self, 'lyrics_canvas'):
+            self.lyrics_canvas.update_position(target_sec, self.player.state.get("is_playing", False))
 
     def _on_volume_changed(self, scale):
         val = int(scale.get_value())
@@ -2651,7 +2708,14 @@ class StarkifyApp(Gtk.Window):
         if self.is_visible():
             self.hide()
         else:
-            self.show_all()
+            self.show()
+            # Ensure correct visibility according to active preset
+            saved_style = getattr(self.lyrics_canvas, "anim_style", "apple_sing")
+            is_con = (saved_style == "constellation")
+            if hasattr(self, "constellation_bottom_bar"):
+                self.constellation_bottom_bar.set_visible(is_con)
+            if hasattr(self, "left_col"):
+                self.left_col.set_visible(not is_con)
             self.present()
 
 
@@ -2678,6 +2742,13 @@ def main():
 
     app = StarkifyApp()
     app.show_all()
+    # Explicitly enforce constellation visibility after initial show_all
+    saved_style = getattr(app.lyrics_canvas, "anim_style", "apple_sing")
+    is_con = (saved_style == "constellation")
+    if hasattr(app, "constellation_bottom_bar"):
+        app.constellation_bottom_bar.set_visible(is_con)
+    if hasattr(app, "left_col"):
+        app.left_col.set_visible(not is_con)
     app.present()
     Gtk.main()
 
