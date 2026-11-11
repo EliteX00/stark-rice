@@ -16,6 +16,9 @@ ytmusic_auth.json
 # Sensitive Personal Location & History Configs
 weather_config.json
 weather_cache.json
+jarvis_config.json
+jarvis_history
+*jarvis*speech*.mp3
 listening_history.json
 music_state.json
 recommendation_queue.json

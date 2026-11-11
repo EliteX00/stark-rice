@@ -27,5 +27,13 @@ nohup python3 "$DIR/stark_sunset.py" --daemon > /dev/null 2>&1 &
 # 5. Zenify Discord Rich Presence daemon
 nohup python3 "$DIR/zenify_discord_rpc.py" > /dev/null 2>&1 &
 
+# 6. J.A.R.V.I.S. System Voice Greeting (if enabled in jarvis_config.json)
+if [ -f "$DIR/jarvis_config.json" ]; then
+    BOOT_GREETING=$(jq -r '.boot_greeting // true' "$DIR/jarvis_config.json" 2>/dev/null)
+    if [ "$BOOT_GREETING" = "true" ]; then
+        nohup python3 "$DIR/jarvis_chat.py" --boot > /dev/null 2>&1 &
+    fi
+fi
+
 sleep 0.5
 echo "All Stark Rice and Zenify services restarted."

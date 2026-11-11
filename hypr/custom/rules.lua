@@ -9,3 +9,8 @@ hl.window_rule({ match = { class = "^(zenify|stark-spotify)$" }, size = { 860, 5
 hl.window_rule({ match = { title = "^(Zenify)$" }, float = true })
 hl.window_rule({ match = { title = "^(Zenify)$" }, center = true })
 hl.window_rule({ match = { title = "^(Zenify)$" }, size = { 860, 520 } })
+
+-- J.A.R.V.I.S. HUD Floating Window Rules
+hl.window_rule({ match = { class = "^(jarvis-hud)$" }, float = true })
+hl.window_rule({ match = { class = "^(jarvis-hud)$" }, center = true })
+hl.window_rule({ match = { class = "^(jarvis-hud)$" }, size = { 880, 560 } })

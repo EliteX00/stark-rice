@@ -8,6 +8,7 @@ A frosted-glass Hyprland desktop setup with **Zenify**, a dual-mode music player
 
 - Frosted-glass Zenify player with a now-playing view and playlist/search browser.
 - Synchronized lyrics with animated kinetic typography, seeking, and adjustable lyric timing.
+- **J.A.R.V.I.S. Voice & System Intelligence Assistant:** Powered by NVIDIA NIM (`nemotron-3.5-bolt-e4b`) and Deepgram Aura-2 (`aura-2-pluto-en`), with real-time Arch/Hyprland telemetry, music control, and floating HUD overlay.
 - Playback controls, listening history, recommendations, and optional autoplay.
 - Desktop widgets and supporting services, including wallpaper, Waybar, weather, audio visualization, and Discord Rich Presence components.
 - Hyprland configuration with custom keybindings and startup integration.
@@ -81,7 +82,18 @@ Some integrations are optional and may need credentials/configuration, such as S
 - **`{` / `}`:** adjust lyric timing by 0.1 seconds.
 - **`0`:** reset lyric timing.
 
-The custom Hyprland keybindings also include **Super+P** to toggle Zenify and **Ctrl+Super+B** to restart the Stark UI services, once the configuration has been integrated and paths verified.
+The custom Hyprland keybindings also include **Super+P** to toggle Zenify, **Super+J** to toggle the J.A.R.V.I.S. floating console HUD, and **Ctrl+Super+B** to restart the Stark UI services, once the configuration has been integrated and paths verified.
+
+## J.A.R.V.I.S. Controls & CLI
+
+J.A.R.V.I.S. is Tony Stark's AI assistant with Paul Bettany's refined persona and voice:
+
+- **Super + J:** Toggle the floating holographic J.A.R.V.I.S. console HUD.
+- **`jarvis`:** Launch the interactive terminal console.
+- **`jarvis "<question>"`:** One-shot terminal query with live spoken response (e.g. `jarvis "what is the weather?"`).
+- **`jarvis --boot`:** Trigger the Stark boot greeting.
+- **Voice commands supported in chat:** "pause music", "resume music", "next song", "turn it up", "status report", "lock screen".
+- **Console commands:** `speed <val>`, `reverb`, `mute`, `clear`, `repeat`, `status`.
 
 ## Configuration and data
 

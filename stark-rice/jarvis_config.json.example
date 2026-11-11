@@ -1,0 +1,10 @@
+{
+  "nim_api_key": "YOUR_NVIDIA_NIM_API_KEY",
+  "deepgram_api_key": "YOUR_DEEPGRAM_API_KEY",
+  "model_name": "nvidia/nemotron-3.5-bolt-e4b",
+  "voice_model": "aura-2-pluto-en",
+  "playback_speed": 1.12,
+  "spatial_reverb": false,
+  "voice_enabled": true,
+  "boot_greeting": true
+}

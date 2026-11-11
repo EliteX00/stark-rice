@@ -32,3 +32,6 @@ hl.bind("CTRL + SUPER + B", hl.dsp.exec_cmd("$HOME/.config/stark-rice/launch.sh"
 
 -- Win + P -> Custom Integrated Spotify Player
 hl.bind("SUPER + P", hl.dsp.exec_cmd("python3 $HOME/.config/stark-rice/stark_spotify.py --toggle"), { description = "Stark Spotify: Toggle Player" })
+
+-- Win + J -> J.A.R.V.I.S. Core Floating HUD Console
+hl.bind("SUPER + J", hl.dsp.exec_cmd("$HOME/.local/bin/jarvis --toggle"), { description = "J.A.R.V.I.S. Core Console" })
