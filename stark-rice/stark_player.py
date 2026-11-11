@@ -1102,7 +1102,7 @@ class StarkPlayerBackend:
         threading.Thread(target=_sync_cloud, args=(actual_yt_id,), daemon=True).start()
 
         try:
-            msg = f"{clean_t} - {artist}"
+            msg = f"{clean_t} by {artist}"
             subprocess.run(["hyprctl", "notify", "0", "3000", "rgb(56,189,248)", f"󰓇 Playing: {msg}"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:

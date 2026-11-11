@@ -100,14 +100,19 @@ def get_telemetry():
             pass
 
     # Music state from Stark Player / Zenify
-    music_info = "No audio track active"
+    music_info = "No track currently queued"
     m_path = os.path.expanduser("~/.config/stark-rice/music_state.json")
     if os.path.exists(m_path):
         try:
             with open(m_path, "r", encoding="utf-8") as f:
                 m = json.load(f)
+                title = m.get("title", "").strip()
+                artist = m.get("artist", "").strip()
                 st = "Playing" if m.get("is_playing") else "Paused"
-                music_info = f"'{m.get('title')}' by {m.get('artist')} [{st}]"
+                if title and artist:
+                    music_info = f"'{title}' by {artist} (Status: {st})"
+                elif title:
+                    music_info = f"'{title}' (Status: {st})"
         except Exception:
             pass
 
@@ -145,10 +150,16 @@ def get_telemetry():
 SYSTEM_PROMPT_BASE = (
     "You are J.A.R.V.I.S., Tony Stark's personal artificial intelligence system. "
     "You are a refined, polite, unflappable British gentleman with a calm baritone demeanor. "
-    "Always address the user as 'Sir'. Keep responses concise (typically 1 to 3 sentences max) "
+    "Always address the user as 'Sir'. Keep responses concise (typically 1 to 2 sentences) "
     "so they are punchy and natural for text-to-speech delivery. "
     "Use natural punctuation, ellipses (...), and em-dashes (—) to give the speech engine breathing room.\n\n"
-    "You have real-time access to Sir's Arch Linux system and Stark Rice environment.\n"
+    "You have real-time access to Sir's Arch Linux system and Stark Rice environment.\n\n"
+    "Crucial Music Formatting Rule:\n"
+    "Whenever Sir asks about music, or commands any playback action (pause, play, resume, status, skip, what song is this), "
+    "you MUST ALWAYS explicitly include both the track name and artist in the exact phrasing format: '<Track Name> by <Artist>'.\n"
+    "- When pausing: state that you are pausing '<Track Name> by <Artist>'.\n"
+    "- When resuming or playing: state that you are resuming '<Track Name> by <Artist>'.\n"
+    "- When asked what is playing or about the track: state that we are listening to '<Track Name> by <Artist>'.\n\n"
     "If Sir asks to perform a system action, include an action tag at the very end of your response, for example:\n"
     "[ACTION: music_pause]\n"
     "[ACTION: music_play]\n"
@@ -468,6 +479,27 @@ def interactive_session():
 
         if lower in ("status", "diagnostics", "telemetry"):
             show_system_status()
+            continue
+
+        if lower in ("song", "track", "music", "playing", "now playing"):
+            m_path = os.path.expanduser("~/.config/stark-rice/music_state.json")
+            if os.path.exists(m_path):
+                try:
+                    with open(m_path, "r", encoding="utf-8") as f:
+                        m = json.load(f)
+                        t = m.get("title")
+                        a = m.get("artist")
+                        st = "playing" if m.get("is_playing") else "currently paused"
+                        if t and a:
+                            reply = f"We are listening to '{t}' by {a}, which is {st}, Sir."
+                        else:
+                            reply = "No active audio track is currently loaded, Sir."
+                except Exception:
+                    reply = "Unable to read current audio telemetry, Sir."
+            else:
+                reply = "No active audio track is currently loaded, Sir."
+            print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {reply}\n")
+            speak_text(reply, wait=False)
             continue
 
         try:
