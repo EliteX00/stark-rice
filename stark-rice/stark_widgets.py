@@ -1053,17 +1053,10 @@ class StarkWidgetsApp:
         # Prime initial hardware stats
         self.sysmon_win.update()
 
-        # Start Sequential Holographic Boot Animation Loop (16ms / 60 FPS)
-        # Sequence: 1. System Monitor -> 2. Weather -> 3. Quote -> 4. Music -> 5. Clock
-        self.seq_timeline = [
-            ("sysmon", self.sysmon_win, 0.0),
-            ("weather", self.weather_win, 0.38),
-            ("quote", self.quote_win, 0.76),
-            ("music", self.music_win, 1.14),
-            ("clock", self.clock_win, 1.52),
-        ]
-        self.item_dur = 0.48
-        self.boot_duration = 2.10
+        # Start Randomized Holographic Boot Animation Loop (16ms / 60 FPS)
+        # Random appearance sequence and non-fixed delays between each widget
+        self.item_dur = 0.50
+        self._setup_random_boot_timeline()
         self.boot_start_time = time.time()
         GLib.timeout_add(16, self._boot_animation_tick)
 
@@ -1077,6 +1070,26 @@ class StarkWidgetsApp:
         GLib.timeout_add_seconds(600, self.weather_tick)
 
         atexit.register(self.cleanup)
+
+    def _setup_random_boot_timeline(self):
+        """Builds a randomized sequence of widgets with non-fixed staggered start delays."""
+        widgets = [
+            ("sysmon", self.sysmon_win),
+            ("weather", self.weather_win),
+            ("quote", self.quote_win),
+            ("music", self.music_win),
+            ("clock", self.clock_win),
+        ]
+        random.shuffle(widgets)
+
+        current_time_offset = 0.0
+        self.seq_timeline = []
+        for name, win in widgets:
+            self.seq_timeline.append((name, win, current_time_offset))
+            # Randomized non-fixed delay between 0.18s and 0.45s before next widget appears
+            current_time_offset += random.uniform(0.18, 0.45)
+
+        self.boot_duration = current_time_offset + self.item_dur + 0.10
 
     def _boot_animation_tick(self):
         elapsed = time.time() - self.boot_start_time
@@ -1093,7 +1106,7 @@ class StarkWidgetsApp:
                 if name == "sysmon":
                     self.sysmon_win.set_anim_progress(0.01)
             elif rel < self.item_dur:
-                # Longer, detailed high-tech ionization micro-flicker
+                # High-tech ionization micro-flicker
                 t_ms = rel * 1000.0
                 if t_ms < 50:
                     op = 0.05 + (t_ms / 50.0) * 0.70
