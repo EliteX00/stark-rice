@@ -158,7 +158,12 @@ class AppleMusicScrubber(Gtk.DrawingArea):
     def set_progress(self, prog):
         if self._is_dragging:
             return
-        self.progress = max(0.0, min(1.0, prog))
+        new_prog = max(0.0, min(1.0, prog))
+        w = self.get_allocated_width()
+        threshold = 0.5 / max(1, w) if w > 0 else 0.002
+        if abs(self.progress - new_prog) < threshold:
+            return
+        self.progress = new_prog
         self.queue_draw()
 
     def set_accent_rgb(self, rgb):
@@ -327,12 +332,21 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.hud_toast_text = ""
         self.hud_toast_timer = 0.0
 
-        # Persistent Pango Layouts (Allocated ONCE, NEVER in _on_draw!)
+        # Persistent Pango Layouts & Pre-compiled Font Descriptions (Zero alloc in _on_draw!)
         self.pctx = None
         self.layout_word = None
         self.layout_ctx = None
+        self.layout_toast = None
         self.cached_layouts = {}
         self.last_cache_w = 0
+
+        self.font_act_constellation = Pango.FontDescription('Google Sans Flex Bold 30')
+        self.font_past_constellation = Pango.FontDescription('Google Sans Flex Medium 15')
+        self.font_context = Pango.FontDescription('Google Sans Flex Bold 16')
+        self.font_toast = Pango.FontDescription('Google Sans Flex Bold 13')
+        self.font_intro = Pango.FontDescription('Google Sans Flex Bold 15')
+        self.font_intro_first = Pango.FontDescription('Google Sans Flex Bold 17')
+        self.font_empty = Pango.FontDescription('Google Sans Flex Bold 18')
 
         # Audio-reactive Cava Engine for vocal / bass energy modulation
         try:
@@ -476,6 +490,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         if n == 0:
             return None
 
+        self._ensure_layouts()
         seed = (hash(line.get('text', '')) ^ (line_idx * 7919)) & 0xFFFFFFFF
         rng = random.Random(seed)
 
@@ -488,7 +503,22 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         y_mid = min_y + usable_h * 0.5
 
         if n == 1:
-            nodes = [{'idx': 0, 'x': canvas_w * 0.5, 'y': canvas_h * 0.5, 'pos_above': True}]
+            txt = words[0]['text']
+            la = Pango.Layout.new(self.pctx)
+            la.set_font_description(self.font_act_constellation)
+            la.set_text(txt, -1)
+            twa, tha = la.get_pixel_size()
+
+            lp = Pango.Layout.new(self.pctx)
+            lp.set_font_description(self.font_past_constellation)
+            lp.set_text(txt, -1)
+            twp, thp = lp.get_pixel_size()
+
+            nodes = [{
+                'idx': 0, 'x': canvas_w * 0.5, 'y': canvas_h * 0.5, 'pos_above': True,
+                'layout_act': la, 'twa': twa, 'tha': tha,
+                'layout_past': lp, 'twp': twp, 'thp': thp
+            }]
             res = {'nodes': nodes, 'words': words}
             self._constellation_cache[cache_key] = res
             return res
@@ -523,11 +553,29 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         nodes = []
         for i, (x, y) in enumerate(pts):
             pos_above = (y >= y_mid)
+            txt = words[i]['text']
+
+            la = Pango.Layout.new(self.pctx)
+            la.set_font_description(self.font_act_constellation)
+            la.set_text(txt, -1)
+            twa, tha = la.get_pixel_size()
+
+            lp = Pango.Layout.new(self.pctx)
+            lp.set_font_description(self.font_past_constellation)
+            lp.set_text(txt, -1)
+            twp, thp = lp.get_pixel_size()
+
             nodes.append({
                 'idx': i,
                 'x': x,
                 'y': y,
-                'pos_above': pos_above
+                'pos_above': pos_above,
+                'layout_act': la,
+                'twa': twa,
+                'tha': tha,
+                'layout_past': lp,
+                'twp': twp,
+                'thp': thp
             })
 
         res = {'nodes': nodes, 'words': words}
@@ -539,6 +587,22 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         self.anchor_wall_time = time.perf_counter()
         self.is_playing = is_playing
         self._start_anim()
+
+    def pause_cava(self):
+        if hasattr(self, 'cava') and self.cava and self.cava.proc:
+            try:
+                import signal
+                os.kill(self.cava.proc.pid, signal.SIGSTOP)
+            except Exception:
+                pass
+
+    def resume_cava(self):
+        if hasattr(self, 'cava') and self.cava and self.cava.proc:
+            try:
+                import signal
+                os.kill(self.cava.proc.pid, signal.SIGCONT)
+            except Exception:
+                pass
 
     def cleanup(self):
         if hasattr(self, 'cava') and self.cava:
@@ -562,6 +626,9 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             self.pctx = self.get_pango_context()
             self.layout_word = Pango.Layout.new(self.pctx)
             self.layout_ctx = Pango.Layout.new(self.pctx)
+            self.layout_toast = Pango.Layout.new(self.pctx)
+            self.layout_toast.set_font_description(self.font_toast)
+            self.layout_toast.set_alignment(Pango.Alignment.CENTER)
 
     def _get_line_layout(self, line_idx, canvas_w):
         if line_idx < 0 or line_idx >= len(self.kinetic_lines):
@@ -598,8 +665,10 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         for w_idx, w_obj in enumerate(line['words']):
             glyph = w_obj.get('glyph', '')
             disp_text = f"{w_obj['text']} {glyph}" if glyph else w_obj['text']
-            self.layout_word.set_text(disp_text, -1)
-            pw, ph = self.layout_word.get_pixel_size()
+            wl = Pango.Layout.new(self.pctx)
+            wl.set_font_description(desc)
+            wl.set_text(disp_text, -1)
+            pw, ph = wl.get_pixel_size()
             measured_words.append({
                 'idx': w_idx,
                 'obj': w_obj,
@@ -608,6 +677,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 'start': w_obj['start'],
                 'end': w_obj['end'],
                 'duration': w_obj['duration'],
+                'layout': wl,
                 'pw': pw,
                 'ph': ph
             })
@@ -648,19 +718,32 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 mw['cy'] = y_pos + (mw['ph'] / 2.0)
                 x_cursor += mw['pw'] + word_spacing
 
+        # Pre-build context layout for previous/next line rendering (zero-alloc in _on_draw)
+        ctx_l = Pango.Layout.new(self.pctx)
+        ctx_l.set_font_description(self.font_context)
+        ctx_l.set_alignment(Pango.Alignment.CENTER)
+        ctx_l.set_width(int((max(200.0, canvas_w - 48.0)) * Pango.SCALE))
+        ctx_l.set_text(line.get('text', ''), -1)
+        _, ctx_h = ctx_l.get_pixel_size()
+
         layout_data = {
             'is_rap': is_rap,
             'font_size': base_font_size,
             'desc': desc,
             'rows': rows,
             'total_h': total_h,
-            'row_h': row_h
+            'row_h': row_h,
+            'context_layout': ctx_l,
+            'context_h': ctx_h
         }
         self.cached_layouts[line_idx] = layout_data
         return layout_data
 
     def _on_frame_tick(self):
-        if not self.get_visible():
+        if not self.is_visible():
+            return True
+
+        if not self.is_playing and not self.user_scrolling and not self.shockwaves:
             return True
 
         cur_t = self._get_smooth_time() + self.latency_offset
@@ -798,12 +881,9 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
     def _draw_hud_toast(self, cr, w, r_acc, g_acc, b_acc):
         if time.time() < self.hud_toast_timer and self.hud_toast_text:
             fade = min(1.0, max(0.0, (self.hud_toast_timer - time.time()) / 0.4))
-            desc_hud = Pango.FontDescription('Google Sans Flex Bold 13')
-            self.layout_ctx.set_font_description(desc_hud)
-            self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
-            self.layout_ctx.set_width(-1)
-            self.layout_ctx.set_text(self.hud_toast_text, -1)
-            hw, hh = self.layout_ctx.get_pixel_size()
+            self._ensure_layouts()
+            self.layout_toast.set_text(self.hud_toast_text, -1)
+            hw, hh = self.layout_toast.get_pixel_size()
             toast_pad_x = 16.0
             toast_pad_y = 6.0
             toast_w = hw + (toast_pad_x * 2.0)
@@ -820,7 +900,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.95 * fade)
             cr.move_to(toast_x + toast_pad_x, toast_y + toast_pad_y)
-            PangoCairo.show_layout(cr, self.layout_ctx)
+            PangoCairo.show_layout(cr, self.layout_toast)
 
     def _on_draw(self, widget, cr):
         w = self.get_allocated_width()
@@ -957,15 +1037,11 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
             is_huge_pause = is_line_ended and (cur_t < active_line['start'] + active_line.get('gap', 0.0) - 0.5) and (active_line.get('gap', 0.0) > 4.5)
             if is_huge_pause:
                 if active_idx + 1 < len(self.kinetic_lines):
-                    next_l = self.kinetic_lines[active_idx + 1]
-                    desc = Pango.FontDescription('Google Sans Flex Bold 16')
-                    self.layout_ctx.set_font_description(desc)
-                    self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
-                    self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-                    self.layout_ctx.set_text(next_l['text'], -1)
-                    cr.set_source_rgba(tint_r, tint_g, tint_b, 0.28)
-                    cr.move_to(24.0, center_y + 42.0)
-                    PangoCairo.show_layout(cr, self.layout_ctx)
+                    next_layout_data = self._get_line_layout(active_idx + 1, w)
+                    if next_layout_data and 'context_layout' in next_layout_data:
+                        cr.set_source_rgba(tint_r, tint_g, tint_b, 0.28)
+                        cr.move_to(24.0, center_y + 42.0)
+                        PangoCairo.show_layout(cr, next_layout_data['context_layout'])
                 self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
                 return False
 
@@ -1067,8 +1143,6 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 for i in range(visible_count):
                     cx, cy = nodes[i]['x'], nodes[i]['y']
                     pos_above = nodes[i].get('pos_above', cy >= (h * 0.49))
-                    w_obj = c_words[i]
-                    txt = w_obj['text']
                     is_active = (i == eff_active_w and not is_line_ended)
 
                     if is_active:
@@ -1080,11 +1154,10 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         spring = math.sin(p_norm * math.pi) * ((1.0 - p_norm) ** 0.5)
                         scale_text = 1.0 + (0.12 + energy * 0.10) * spring
 
-                        # Active word typography (30pt bold pure white)
-                        desc_act = Pango.FontDescription('Google Sans Flex Bold 30')
-                        self.layout_word.set_font_description(desc_act)
-                        self.layout_word.set_text(txt, -1)
-                        tw, th = self.layout_word.get_pixel_size()
+                        # Active word typography (30pt bold pure white) - Cached layout
+                        la = nodes[i]['layout_act']
+                        tw = nodes[i]['twa']
+                        th = nodes[i]['tha']
 
                         text_x = cx - (tw / 2.0)
                         text_x = max(24.0, min(w - tw - 24.0, text_x))
@@ -1097,15 +1170,14 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         cr.translate(-cx, -(text_y + (th / 2.0)))
                         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
                         cr.move_to(text_x, text_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, la)
                         cr.restore()
 
                     else:
-                        # Past word typography (15pt Google Sans Flex Medium)
-                        desc_past = Pango.FontDescription('Google Sans Flex Medium 15')
-                        self.layout_word.set_font_description(desc_past)
-                        self.layout_word.set_text(txt, -1)
-                        tw, th = self.layout_word.get_pixel_size()
+                        # Past word typography (15pt Google Sans Flex Medium) - Cached layout
+                        lp = nodes[i]['layout_past']
+                        tw = nodes[i]['twp']
+                        th = nodes[i]['thp']
 
                         text_x = cx - (tw / 2.0)
                         text_x = max(20.0, min(w - tw - 20.0, text_x))
@@ -1114,7 +1186,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
                         cr.set_source_rgba(0.92, 0.90, 0.88, 0.82)
                         cr.move_to(text_x, text_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, lp)
 
                 self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
                 return False
@@ -1157,15 +1229,11 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 cr.fill()
 
             if active_idx + 1 < len(self.kinetic_lines):
-                next_l = self.kinetic_lines[active_idx + 1]
-                desc = Pango.FontDescription('Google Sans Flex Bold 16')
-                self.layout_ctx.set_font_description(desc)
-                self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
-                self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-                self.layout_ctx.set_text(next_l['text'], -1)
-                cr.set_source_rgba(tint_r, tint_g, tint_b, 0.28)
-                cr.move_to(24.0, center_y + 42.0)
-                PangoCairo.show_layout(cr, self.layout_ctx)
+                next_layout_data = self._get_line_layout(active_idx + 1, w)
+                if next_layout_data and 'context_layout' in next_layout_data:
+                    cr.set_source_rgba(tint_r, tint_g, tint_b, 0.28)
+                    cr.move_to(24.0, center_y + 42.0)
+                    PangoCairo.show_layout(cr, next_layout_data['context_layout'])
 
             self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
             return False
@@ -1174,26 +1242,20 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
         # Context Framing: Previous Line (Guaranteed clearance ABOVE hero)
         # ---------------------------------------------------------------------
         if active_idx > 0:
-            prev_line = self.kinetic_lines[active_idx - 1]
-            desc = Pango.FontDescription('Google Sans Flex Bold 16')
-            self.layout_ctx.set_font_description(desc)
-            self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
-            self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-            self.layout_ctx.set_text(prev_line['text'], -1)
-            _, prev_h = self.layout_ctx.get_pixel_size()
-
-            prev_y = hero_start_y - prev_h - 22.0
-            if prev_y > 10:
-                prev_alpha = min(0.38, max(0.06, (prev_y - 10.0) / 40.0 * 0.38))
-                if has_motion_blur:
-                    cr.set_source_rgba(r_acc, g_acc, b_acc, prev_alpha * 0.40)
-                    cr.move_to(24.0, prev_y - blur_v * 0.5)
-                    PangoCairo.show_layout(cr, self.layout_ctx)
-                cr.set_source_rgba(tint_r, tint_g, tint_b, prev_alpha)
-                cr.move_to(24.0, prev_y)
-                PangoCairo.show_layout(cr, self.layout_ctx)
-
-        self.layout_word.set_font_description(layout_data['desc'])
+            prev_layout_data = self._get_line_layout(active_idx - 1, w)
+            if prev_layout_data and 'context_layout' in prev_layout_data:
+                prev_l = prev_layout_data['context_layout']
+                prev_h = prev_layout_data['context_h']
+                prev_y = hero_start_y - prev_h - 22.0
+                if prev_y > 10:
+                    prev_alpha = min(0.38, max(0.06, (prev_y - 10.0) / 40.0 * 0.38))
+                    if has_motion_blur:
+                        cr.set_source_rgba(r_acc, g_acc, b_acc, prev_alpha * 0.40)
+                        cr.move_to(24.0, prev_y - blur_v * 0.5)
+                        PangoCairo.show_layout(cr, prev_l)
+                    cr.set_source_rgba(tint_r, tint_g, tint_b, prev_alpha)
+                    cr.move_to(24.0, prev_y)
+                    PangoCairo.show_layout(cr, prev_l)
 
         for r in layout_data['rows']:
             for mw in r['words']:
@@ -1204,8 +1266,6 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                 word_y = hero_start_y + mw['y']
                 cx_word = mw['cx']
                 cy_word = hero_start_y + mw['cy']
-
-                self.layout_word.set_text(mw['text'], -1)
 
                 if w_idx == active_w_idx:
                     elapsed = max(0.0, cur_t - w_start)
@@ -1230,7 +1290,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         # Dimmed base in album tint
                         cr.set_source_rgba(tint_r, tint_g, tint_b, 0.38)
                         cr.move_to(draw_x, draw_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
 
                         # Fluid progressive syllable clip mask
                         cr.save()
@@ -1239,7 +1299,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         cr.clip()
                         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
                         cr.move_to(draw_x, draw_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
                         cr.restore()
 
                         cr.restore()
@@ -1265,7 +1325,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                                 cr.translate(-cx_word, -(cy_word - t_lift))
                                 cr.set_source_rgba(trail_col[0], trail_col[1], trail_col[2], trail_alpha * spring)
                                 cr.move_to(cx_word - (mw['pw'] / 2.0), (cy_word - t_lift) - (mw['ph'] / 2.0))
-                                PangoCairo.show_layout(cr, self.layout_word)
+                                PangoCairo.show_layout(cr, mw['layout'])
                                 cr.restore()
 
                         cr.save()
@@ -1278,7 +1338,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
 
                         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
                         cr.move_to(draw_x, draw_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
                         cr.restore()
 
                     # 3. Rolling Flip (3D Perspective Squish & Roll)
@@ -1298,11 +1358,11 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         if flip_p < 0.8:
                             cr.set_source_rgba(s_r, s_g, s_b, 0.40 * (1.0 - flip_p))
                             cr.move_to(draw_x + 2.0, draw_y + 2.5)
-                            PangoCairo.show_layout(cr, self.layout_word)
+                            PangoCairo.show_layout(cr, mw['layout'])
 
                         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
                         cr.move_to(draw_x, draw_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
                         cr.restore()
 
                     # 4. Minimal Wave (Sinusoidal Silk Float & Luminescence)
@@ -1323,7 +1383,7 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                         col_b = b_acc + (1.0 - b_acc) * vocal_p
                         cr.set_source_rgba(col_r, col_g, col_b, 1.0)
                         cr.move_to(draw_x, draw_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
                         cr.restore()
 
                     # 5. Cyber Glitch (Chromatic Prism Split)
@@ -1344,51 +1404,47 @@ class CinematicLyricsCanvas(Gtk.DrawingArea):
                             chroma = (3.5 + energy * 4.0) * snap
                             cr.set_source_rgba(r_acc, g_acc, b_acc, 0.60 * snap)
                             cr.move_to(draw_x - chroma, draw_y)
-                            PangoCairo.show_layout(cr, self.layout_word)
+                            PangoCairo.show_layout(cr, mw['layout'])
 
                             cr.set_source_rgba(s_r, s_g, s_b, 0.60 * snap)
                             cr.move_to(draw_x + chroma, draw_y)
-                            PangoCairo.show_layout(cr, self.layout_word)
+                            PangoCairo.show_layout(cr, mw['layout'])
 
                         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
                         cr.move_to(draw_x, draw_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
                         cr.restore()
 
                     else:
                         cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
                         cr.move_to(word_x, word_y)
-                        PangoCairo.show_layout(cr, self.layout_word)
+                        PangoCairo.show_layout(cr, mw['layout'])
 
                 elif w_idx < active_w_idx:
                     cr.set_source_rgba(1.0, 1.0, 1.0, 0.88)
                     cr.move_to(word_x, word_y)
-                    PangoCairo.show_layout(cr, self.layout_word)
+                    PangoCairo.show_layout(cr, mw['layout'])
 
                 else:
                     cr.set_source_rgba(tint_r, tint_g, tint_b, 0.28)
                     cr.move_to(word_x, word_y)
-                    PangoCairo.show_layout(cr, self.layout_word)
+                    PangoCairo.show_layout(cr, mw['layout'])
 
         # Context Framing: Next Line
         if active_idx + 1 < len(self.kinetic_lines):
-            next_line = self.kinetic_lines[active_idx + 1]
-            desc = Pango.FontDescription('Google Sans Flex Bold 16')
-            self.layout_ctx.set_font_description(desc)
-            self.layout_ctx.set_alignment(Pango.Alignment.CENTER)
-            self.layout_ctx.set_width(int((w - 48.0) * Pango.SCALE))
-            self.layout_ctx.set_text(next_line['text'], -1)
-
-            next_y = hero_end_y + 22.0
-            if next_y < h - 10:
-                next_alpha = min(0.32, max(0.06, (h - 10.0 - next_y) / 40.0 * 0.32))
-                if has_motion_blur:
-                    cr.set_source_rgba(r_acc, g_acc, b_acc, next_alpha * 0.40)
-                    cr.move_to(24.0, next_y - blur_v * 0.5)
-                    PangoCairo.show_layout(cr, self.layout_ctx)
-                cr.set_source_rgba(tint_r, tint_g, tint_b, next_alpha)
-                cr.move_to(24.0, next_y)
-                PangoCairo.show_layout(cr, self.layout_ctx)
+            next_layout_data = self._get_line_layout(active_idx + 1, w)
+            if next_layout_data and 'context_layout' in next_layout_data:
+                next_l = next_layout_data['context_layout']
+                next_y = hero_end_y + 22.0
+                if next_y < h - 10:
+                    next_alpha = min(0.32, max(0.06, (h - 10.0 - next_y) / 40.0 * 0.32))
+                    if has_motion_blur:
+                        cr.set_source_rgba(r_acc, g_acc, b_acc, next_alpha * 0.40)
+                        cr.move_to(24.0, next_y - blur_v * 0.5)
+                        PangoCairo.show_layout(cr, next_l)
+                    cr.set_source_rgba(tint_r, tint_g, tint_b, next_alpha)
+                    cr.move_to(24.0, next_y)
+                    PangoCairo.show_layout(cr, next_l)
 
         self._draw_hud_toast(cr, w, r_acc, g_acc, b_acc)
         return False
@@ -2478,38 +2534,53 @@ class StarkifyApp(Gtk.Window):
         is_playing = st.get("is_playing", False)
         art_path = st.get("art_path")
 
-        # 1. Update Title & Artist Labels
-        self.showcase_title_lbl.set_label(title)
-        self.showcase_artist_lbl.set_label(artist)
-        self.docked_title_lbl.set_label(title)
-        self.docked_artist_lbl.set_label(artist)
-        self.header_ticker_lbl.set_label(f"Now Playing: {title} • {artist}")
+        # 1. Update Title & Artist Labels (only if changed to avoid unnecessary GTK layout passes)
+        if self.is_visible():
+            if self.showcase_title_lbl.get_label() != title:
+                self.showcase_title_lbl.set_label(title)
+                self.docked_title_lbl.set_label(title)
+                if hasattr(self, 'constellation_title_lbl'):
+                    self.constellation_title_lbl.set_label(title)
+            if self.showcase_artist_lbl.get_label() != artist:
+                self.showcase_artist_lbl.set_label(artist)
+                self.docked_artist_lbl.set_label(artist)
+                if hasattr(self, 'constellation_artist_lbl'):
+                    self.constellation_artist_lbl.set_label(artist)
 
-        # 2. Update Play/Pause Buttons
-        glyph = GLYPHS["pause"] if is_playing else GLYPHS["play"]
-        self.btn_showcase_play.set_label(glyph)
-        self.btn_docked_play.set_label(glyph)
+            ticker_text = f"Now Playing: {title} • {artist}"
+            if self.header_ticker_lbl.get_label() != ticker_text:
+                self.header_ticker_lbl.set_label(ticker_text)
 
-        # 3. Update Progress Scrubber & Times
-        self.showcase_scrubber.set_progress(prog)
-        self.docked_scrubber.set_progress(prog)
+            # 2. Update Play/Pause Buttons
+            glyph = GLYPHS["pause"] if is_playing else GLYPHS["play"]
+            if self.btn_showcase_play.get_label() != glyph:
+                self.btn_showcase_play.set_label(glyph)
+                self.btn_docked_play.set_label(glyph)
+                if hasattr(self, 'constellation_btn_play'):
+                    self.constellation_btn_play.set_label(glyph)
 
-        elapsed_str = format_duration(pos)
-        remaining_str = format_remaining(dur, pos) if dur > 0 else "-0:00"
-        self.showcase_time_elapsed.set_label(elapsed_str)
-        self.showcase_time_remaining.set_label(remaining_str)
+            # 3. Update Progress Scrubber & Times
+            self.showcase_scrubber.set_progress(prog)
+            self.docked_scrubber.set_progress(prog)
+            if hasattr(self, 'constellation_scrubber'):
+                self.constellation_scrubber.set_progress(prog)
 
-        self.docked_cur_time.set_label(elapsed_str)
-        self.docked_total_time.set_label(format_duration(dur))
+            elapsed_str = format_duration(pos)
+            remaining_str = format_remaining(dur, pos) if dur > 0 else "-0:00"
+            if self.showcase_time_elapsed.get_label() != elapsed_str:
+                self.showcase_time_elapsed.set_label(elapsed_str)
+                self.docked_cur_time.set_label(elapsed_str)
+                if hasattr(self, 'constellation_time_elapsed'):
+                    self.constellation_time_elapsed.set_label(elapsed_str)
 
-        # Update Constellation Bottom Player Bar
-        if hasattr(self, 'constellation_title_lbl'):
-            self.constellation_title_lbl.set_label(title)
-            self.constellation_artist_lbl.set_label(artist)
-            self.constellation_btn_play.set_label(glyph)
-            self.constellation_scrubber.set_progress(prog)
-            self.constellation_time_elapsed.set_label(elapsed_str)
-            self.constellation_time_remaining.set_label(remaining_str)
+            if self.showcase_time_remaining.get_label() != remaining_str:
+                self.showcase_time_remaining.set_label(remaining_str)
+                if hasattr(self, 'constellation_time_remaining'):
+                    self.constellation_time_remaining.set_label(remaining_str)
+
+            dur_str = format_duration(dur)
+            if self.docked_total_time.get_label() != dur_str:
+                self.docked_total_time.set_label(dur_str)
 
         # 4. Cover Art & Mesh Palette Sync
         is_dummy = (not art_path or "075f428c" in art_path or "2a96cbd8" in art_path or not os.path.exists(art_path))
@@ -2641,6 +2712,7 @@ class StarkifyApp(Gtk.Window):
         return False
 
     def _hide_or_quit(self):
+        self.lyrics_canvas.pause_cava()
         self.hide()
         return True
 
@@ -2661,6 +2733,8 @@ class StarkifyApp(Gtk.Window):
                     data = conn.recv(1024).decode("utf-8").strip()
                     if data == "toggle":
                         GLib.idle_add(self._toggle_visibility)
+                    elif data == "show":
+                        GLib.idle_add(self._show_window)
                     elif data == "play":
                         GLib.idle_add(self.player.toggle_play)
                     elif data == "next":
@@ -2708,9 +2782,11 @@ class StarkifyApp(Gtk.Window):
 
     def _toggle_visibility(self):
         if self.is_visible():
+            self.lyrics_canvas.pause_cava()
             self.hide()
         else:
             self.show()
+            self.lyrics_canvas.resume_cava()
             # Ensure correct visibility according to active preset
             saved_style = getattr(self.lyrics_canvas, "anim_style", "apple_sing")
             is_con = (saved_style == "constellation")
@@ -2719,30 +2795,72 @@ class StarkifyApp(Gtk.Window):
             if hasattr(self, "left_col"):
                 self.left_col.set_visible(not is_con)
             self.present()
+            self.lyrics_canvas.queue_draw()
+
+    def _show_window(self):
+        if not self.is_visible():
+            self._toggle_visibility()
+        else:
+            self.present()
 
 
-def toggle_or_launch():
+LOCK_FILE = "/tmp/stark_spotify.lock"
+_lock_fd = None
+
+
+def acquire_single_instance_lock():
+    global _lock_fd
+    try:
+        import fcntl
+        _lock_fd = open(LOCK_FILE, "a+")
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except (IOError, OSError):
+        return False
+
+
+def send_ipc_command(cmd="toggle"):
     if os.path.exists(UI_SOCKET):
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.connect(UI_SOCKET)
-            s.sendall(b"toggle\n")
-            s.close()
-            return True
-        except Exception:
+        for _ in range(5):
             try:
-                os.remove(UI_SOCKET)
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(0.6)
+                s.connect(UI_SOCKET)
+                s.sendall(f"{cmd}\n".encode("utf-8"))
+                s.close()
+                return True
             except Exception:
-                pass
+                time.sleep(0.06)
     return False
 
 
 def main():
-    if "--toggle" in sys.argv:
-        if toggle_or_launch():
-            sys.exit(0)
+    is_toggle = ("--toggle" in sys.argv)
 
+    if not acquire_single_instance_lock():
+        cmd = "toggle" if is_toggle else "show"
+        send_ipc_command(cmd)
+        sys.exit(0)
+
+    import atexit, signal
     app = StarkifyApp()
+
+    def _cleanup_handler(*args):
+        try:
+            app.lyrics_canvas.cleanup()
+        except Exception:
+            pass
+        if os.path.exists(UI_SOCKET):
+            try:
+                os.remove(UI_SOCKET)
+            except Exception:
+                pass
+        sys.exit(0)
+
+    atexit.register(_cleanup_handler)
+    signal.signal(signal.SIGINT, _cleanup_handler)
+    signal.signal(signal.SIGTERM, _cleanup_handler)
+
     app.show_all()
     # Explicitly enforce constellation visibility after initial show_all
     saved_style = getattr(app.lyrics_canvas, "anim_style", "apple_sing")

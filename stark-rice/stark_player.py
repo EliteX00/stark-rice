@@ -807,12 +807,16 @@ class StarkPlayerBackend:
         self._was_playing = False
         self._stream_cache = {}
         self._prefetched_next_track = False
+        self._state_lock = threading.Lock()
+        self._is_running = True
+        self._last_metrics_save = 0.0
         self._load_cached_state()
 
         # Background pre-load paused track on startup so clicking play is instantaneous
         if self.state.get("title") not in ("Nothing Playing", "Ready to Play"):
             threading.Thread(target=self._preload_paused_track, daemon=True).start()
 
+        threading.Thread(target=self._metrics_poller, daemon=True).start()
         threading.Thread(target=self._autoplay_watcher, daemon=True).start()
         self._ensure_discord_rpc()
 
@@ -963,6 +967,37 @@ class StarkPlayerBackend:
             return {"error": "no valid json"}
         except Exception as e:
             return {"error": str(e)}
+
+    def send_mpv_batch(self, command_list):
+        self._ensure_mpv()
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect(SOCKET_PATH)
+            payload = "".join(json.dumps({"command": cmd, "request_id": idx}) + "\n" for idx, cmd in enumerate(command_list))
+            s.sendall(payload.encode("utf-8"))
+            buf = b""
+            needed = len(command_list)
+            while buf.count(b"\n") < needed:
+                chunk = s.recv(2048)
+                if not chunk:
+                    break
+                buf += chunk
+            s.close()
+            results = {}
+            for line in buf.decode("utf-8", errors="ignore").strip().split("\n"):
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    req_id = data.get("request_id")
+                    if req_id is not None:
+                        results[req_id] = data
+                except Exception:
+                    pass
+            return results
+        except Exception:
+            return {}
 
     def _cache_art_url(self, url, title="", artist=""):
         if not url or not url.startswith("http") or "2a96cbd8" in url:
@@ -1195,39 +1230,50 @@ class StarkPlayerBackend:
             pass
         return new_val
 
+    def _metrics_poller(self):
+        while getattr(self, "_is_running", True):
+            try:
+                cmds = [
+                    ["get_property", "time-pos"],
+                    ["get_property", "duration"],
+                    ["get_property", "pause"],
+                    ["get_property", "idle-active"]
+                ]
+                res = self.send_mpv_batch(cmds)
+                if res:
+                    pos_res = res.get(0, {})
+                    dur_res = res.get(1, {})
+                    pause_res = res.get(2, {})
+                    idle_res = res.get(3, {})
+
+                    is_idle = bool(idle_res.get("data", False))
+                    with self._state_lock:
+                        if is_idle:
+                            self.state["is_playing"] = False
+                        elif "data" in pause_res and isinstance(pause_res["data"], bool):
+                            self.state["is_playing"] = not pause_res["data"]
+
+                        if "data" in pos_res and isinstance(pos_res["data"], (int, float)):
+                            self.state["position"] = float(pos_res["data"])
+                        if "data" in dur_res and isinstance(dur_res["data"], (int, float)):
+                            self.state["duration"] = float(dur_res["data"])
+
+                        if self.state.get("duration", 0) > 0:
+                            self.state["progress"] = min(1.0, max(0.0, self.state["position"] / self.state["duration"]))
+
+                        self.state["autoplay"] = self.history_mgr.autoplay_enabled
+
+                now = time.time()
+                if (now - getattr(self, "_last_metrics_save", 0.0)) >= 2.0:
+                    self._last_metrics_save = now
+                    self._save_state()
+            except Exception:
+                pass
+            time.sleep(0.10)
+
     def update_playback_metrics(self):
-        try:
-            pos_res = self.send_mpv_cmd(["get_property", "time-pos"])
-            dur_res = self.send_mpv_cmd(["get_property", "duration"])
-            pause_res = self.send_mpv_cmd(["get_property", "pause"])
-            idle_res = self.send_mpv_cmd(["get_property", "idle-active"])
-
-            is_idle = bool(idle_res.get("data", False))
-            if is_idle:
-                self.state["is_playing"] = False
-            elif "data" in pause_res and isinstance(pause_res["data"], bool):
-                self.state["is_playing"] = not pause_res["data"]
-
-            if "data" in pos_res and isinstance(pos_res["data"], (int, float)):
-                self.state["position"] = float(pos_res["data"])
-            if "data" in dur_res and isinstance(dur_res["data"], (int, float)):
-                self.state["duration"] = float(dur_res["data"])
-
-            if self.state.get("duration", 0) > 0:
-                self.state["progress"] = min(1.0, max(0.0, self.state["position"] / self.state["duration"]))
-
-            self.state["autoplay"] = self.history_mgr.autoplay_enabled
-
-            # Periodic background flush of playback metrics to music_state.json (every 2.0s)
-            now = time.time()
-            if not hasattr(self, "_last_metrics_save"):
-                self._last_metrics_save = 0.0
-            if (now - self._last_metrics_save) >= 2.0:
-                self._last_metrics_save = now
-                self._save_state()
-        except Exception:
-            pass
-        return self.state
+        with self._state_lock:
+            return dict(self.state)
 
     def _autoplay_watcher(self):
         while True:
