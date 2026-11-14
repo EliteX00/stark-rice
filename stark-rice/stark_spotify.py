@@ -2326,7 +2326,7 @@ class StarkifyApp(Gtk.Window):
             self.track_list_box.remove(child)
 
         # Update Banner Art with First Track's Art
-        if tracks:
+        if tracks and isinstance(tracks[0], dict):
             first_t = tracks[0]
             self._load_art_image(first_t.get("art_url", ""), self.banner_art_img, size=88,
                                 title=first_t.get("title", ""), artist=first_t.get("artist", ""))
@@ -2334,6 +2334,8 @@ class StarkifyApp(Gtk.Window):
         cur_title = self.player.state.get("title", "").lower()
 
         for idx, track in enumerate(tracks, start=1):
+            if not isinstance(track, dict):
+                continue
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
             row_box.get_style_context().add_class("stark-track-row")
 

@@ -86,31 +86,50 @@ window {
 }
 
 /* ==========================================================================
-   System Monitor Card
+   System Monitor Card (Minimalist All-Graph HUD)
    ========================================================================== */
 .sysmon-header {
     color: #e2e8f0;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
     margin-bottom: 2px;
+}
+
+.sysmon-status-dot {
+    color: #34d399;
+    font-size: 8px;
+    margin-right: 2px;
 }
 
 .stat-label {
     color: #94a3b8;
-    font-size: 11px;
-    font-weight: 400;
-    min-width: 38px;
+    font-size: 10px;
+    font-weight: 500;
+    min-width: 36px;
+    letter-spacing: 0.2px;
 }
 
 .stat-val {
-    color: #e2e8f0;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: "JetBrainsMono Nerd Font", monospace;
 }
 
-.stat-temp-icon {
+.stat-val-cpu {
+    color: #00f0ff;
+}
+
+.stat-val-ram {
+    color: #c084fc;
+}
+
+.stat-val-gpu {
     color: #38bdf8;
-    font-size: 13px;
+}
+
+.stat-val-temp {
+    color: #34d399;
 }
 
 /* GTK Progress Bar */

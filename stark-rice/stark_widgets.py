@@ -93,18 +93,33 @@ def draw_bezier_curve(cr, points):
 
 
 class GlowingSparkline(Gtk.DrawingArea):
-    """Real-time cyan Bezier sparkline with rich shading under graph."""
-    def __init__(self, color_rgb=(0.22, 0.74, 0.97), width=180, height=24):
+    """Real-time Bezier sparkline with continuous 50 FPS smooth flow and assembly sweep support."""
+    def __init__(self, color_rgb=(0.22, 0.74, 0.97), width=252, height=15):
         super().__init__()
         self.color_rgb = color_rgb
         self.width = width
         self.height = height
-        self.data = [0.15, 0.18, 0.22, 0.25, 0.20, 0.18, 0.24, 0.28, 0.22, 0.18, 0.20, 0.22]
+        self.num_intervals = 16
+        # Buffer holds num_intervals + 1 points for continuous leftward flow
+        self.data = [0.20] * (self.num_intervals + 1)
+        self.anim_progress = 1.0
+        self.last_metric_time = time.time()
+        self.update_interval = 1.0
         self.set_size_request(width, height)
         self.connect("draw", self.on_draw)
 
-    def set_data(self, new_data):
-        self.data = list(new_data)
+    def set_data(self, new_data, anim_progress=1.0):
+        if len(new_data) < (self.num_intervals + 1):
+            pad = [new_data[0]] * ((self.num_intervals + 1) - len(new_data))
+            self.data = pad + list(new_data)
+        else:
+            self.data = list(new_data[-(self.num_intervals + 1):])
+        self.anim_progress = anim_progress
+        self.last_metric_time = time.time()
+        self.queue_draw()
+
+    def tick_flow(self):
+        """Called by 50 FPS animation loop to smoothly animate horizontal stream flow."""
         self.queue_draw()
 
     def on_draw(self, widget, cr):
@@ -115,43 +130,74 @@ class GlowingSparkline(Gtk.DrawingArea):
         if n < 2:
             return False
 
+        r, g, b = self.color_rgb
         pad_top = 2
         pad_bottom = 2
         avail_h = max(h - pad_top - pad_bottom, 1)
 
-        step = w / (n - 1)
+        # Assemble sweep clipping: draws from left to right during boot
+        draw_w = w * max(0.01, min(1.0, self.anim_progress))
+        cr.save()
+        cr.rectangle(0, 0, draw_w, h)
+        cr.clip()
+
+        # Continuous smooth scrolling offset (0.0 -> 1.0 between metric updates)
+        elapsed = time.time() - self.last_metric_time
+        offset = min(max(elapsed / self.update_interval, 0.0), 1.0)
+
+        step = w / float(self.num_intervals)
         points = []
         for i, val in enumerate(self.data):
-            clamped = max(0.06, min(0.94, float(val)))
+            clamped = max(0.05, min(0.95, float(val)))
             y = h - pad_bottom - (clamped * avail_h)
-            x = i * step
+            x = (i - offset) * step
             points.append((x, y))
 
-        r, g, b = self.color_rgb
-
-        # Rich gradient shading fill under curve
+        # 1. Subtle gradient shading fill under curve
         cr.save()
         draw_bezier_curve(cr, points)
-        cr.line_to(w, h)
-        cr.line_to(0, h)
+        cr.line_to(w + 20, h)
+        cr.line_to(-20, h)
         cr.close_path()
 
         grad = cairo.LinearGradient(0, pad_top, 0, h)
-        grad.add_color_stop_rgba(0.0, r, g, b, 0.38)
-        grad.add_color_stop_rgba(0.5, r, g, b, 0.18)
-        grad.add_color_stop_rgba(1.0, r, g, b, 0.03)
+        grad.add_color_stop_rgba(0.0, r, g, b, 0.32)
+        grad.add_color_stop_rgba(0.5, r, g, b, 0.12)
+        grad.add_color_stop_rgba(1.0, r, g, b, 0.02)
         cr.set_source(grad)
         cr.fill()
         cr.restore()
 
-        # Clean sharp stroke along curve edge
-        cr.set_source_rgba(r, g, b, 0.95)
-        cr.set_line_width(1.4)
+        # 2. Glowing outer stroke
+        draw_bezier_curve(cr, points)
+        cr.set_source_rgba(r, g, b, 0.35)
+        cr.set_line_width(2.6)
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        draw_bezier_curve(cr, points)
         cr.stroke()
 
+        # 3. Clean laser core stroke
+        draw_bezier_curve(cr, points)
+        cr.set_source_rgba(0.92, 0.98, 1.0, 0.95)
+        cr.set_line_width(1.1)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        cr.stroke()
+
+        # 4. Terminal glowing node at the leading edge
+        if self.anim_progress >= 0.92:
+            v_prev = self.data[-2]
+            v_next = self.data[-1]
+            interp_v = v_prev + offset * (v_next - v_prev)
+            clamped_node = max(0.05, min(0.95, float(interp_v)))
+            node_y = h - pad_bottom - (clamped_node * avail_h)
+            node_x = min(w - 2.0, draw_w - 2.0)
+
+            cr.arc(node_x, node_y, 2.0, 0, 2 * math.pi)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+            cr.fill()
+
+        cr.restore()
         return False
 
 
@@ -353,14 +399,25 @@ class StarkClockWidget(Gtk.Window):
 
 
 # ==============================================================================
-# 2. TOP-RIGHT SYSTEM MONITOR FROSTED GLASS CARD
+# 2. TOP-RIGHT SYSTEM MONITOR FROSTED GLASS CARD (MINIMALIST ALL-GRAPH HUD)
 # ==============================================================================
 class StarkSysmonWidget(Gtk.Window):
     def __init__(self):
         super().__init__()
         self.prev_idle = 0
         self.prev_total = 0
-        self.cpu_history = deque([0.15, 0.18, 0.22, 0.25, 0.20, 0.18, 0.24, 0.28, 0.22, 0.18, 0.20, 0.22], maxlen=20)
+        
+        # Live History Deques (14 points each for smooth Bezier curves)
+        self.cpu_history = deque([0.15, 0.18, 0.22, 0.25, 0.20, 0.18, 0.24, 0.28, 0.22, 0.18, 0.20, 0.22], maxlen=16)
+        self.ram_history = deque([0.55, 0.56, 0.58, 0.60, 0.62, 0.65, 0.68, 0.69, 0.70, 0.70, 0.71, 0.70], maxlen=16)
+        self.gpu_history = deque([0.08, 0.10, 0.12, 0.15, 0.10, 0.08, 0.14, 0.18, 0.15, 0.12, 0.10, 0.12], maxlen=16)
+        self.temp_history = deque([0.25, 0.26, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27], maxlen=16)
+        
+        self.latest_cpu = 0.22
+        self.latest_ram = 3.2
+        self.latest_ram_tot = 6.0
+        self.latest_gpu = 0.12
+        self.latest_temp = 28
         self._init_cpu()
 
         GtkLayerShell.init_for_window(self)
@@ -373,75 +430,58 @@ class StarkSysmonWidget(Gtk.Window):
         GtkLayerShell.set_namespace(self, "stark-sysmon")
         make_window_transparent(self)
 
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         card.get_style_context().add_class("stark-glass-card")
-        card.set_size_request(205, 168)
+        card.set_size_request(280, 195)
 
-        # Title
+        # Header Box with Status Dot
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header_lbl = Gtk.Label(label="System Monitor")
         header_lbl.set_xalign(0.0)
         header_lbl.get_style_context().add_class("sysmon-header")
-        card.pack_start(header_lbl, False, False, 0)
+        header_dot = Gtk.Label(label="●")
+        header_dot.get_style_context().add_class("sysmon-status-dot")
+        header_box.pack_start(header_lbl, True, True, 0)
+        header_box.pack_end(header_dot, False, False, 0)
+        card.pack_start(header_box, False, False, 0)
 
-        # Glowing Sparkline Waveform with Real-Time Shading
-        self.sparkline = GlowingSparkline(width=180, height=24)
-        card.pack_start(self.sparkline, False, False, 2)
+        # Helper to construct a smooth glowing graph stat block
+        def create_stat_block(label_text, init_val, color_rgb, color_class):
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            
+            top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            lbl = Gtk.Label(label=label_text)
+            lbl.set_xalign(0.0)
+            lbl.get_style_context().add_class("stat-label")
+            
+            val = Gtk.Label(label=init_val)
+            val.set_xalign(1.0)
+            val.get_style_context().add_class("stat-val")
+            val.get_style_context().add_class(color_class)
+            
+            top_row.pack_start(lbl, True, True, 0)
+            top_row.pack_end(val, False, False, 0)
+            vbox.pack_start(top_row, False, False, 0)
+            
+            spark = GlowingSparkline(color_rgb=color_rgb, width=252, height=15)
+            vbox.pack_start(spark, False, False, 0)
+            return vbox, val, spark
 
-        # Row 1: CPU
-        cpu_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        cpu_lbl = Gtk.Label(label="CPU")
-        cpu_lbl.set_xalign(0.0)
-        cpu_lbl.get_style_context().add_class("stat-label")
-        self.cpu_prog = Gtk.ProgressBar()
-        self.cpu_prog.set_fraction(0.21)
-        self.cpu_val = Gtk.Label(label="21%")
-        self.cpu_val.get_style_context().add_class("stat-val")
-        cpu_row.pack_start(cpu_lbl, False, False, 0)
-        cpu_row.pack_start(self.cpu_prog, True, True, 0)
-        cpu_row.pack_end(self.cpu_val, False, False, 0)
-        card.pack_start(cpu_row, False, False, 2)
+        # 1. CPU Sparkline (Cyan #00f0ff)
+        self.cpu_box, self.cpu_val, self.cpu_spark = create_stat_block("CPU", "22%", (0.0, 0.85, 1.0), "stat-val-cpu")
+        card.pack_start(self.cpu_box, False, False, 1)
 
-        # Row 2: RAM
-        ram_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        ram_lbl = Gtk.Label(label="RAM")
-        ram_lbl.set_xalign(0.0)
-        ram_lbl.get_style_context().add_class("stat-label")
-        self.ram_prog = Gtk.ProgressBar()
-        self.ram_prog.set_fraction(0.52)
-        self.ram_val = Gtk.Label(label="3.1G / 6G")
-        self.ram_val.get_style_context().add_class("stat-val")
-        ram_row.pack_start(ram_lbl, False, False, 0)
-        ram_row.pack_start(self.ram_prog, True, True, 0)
-        ram_row.pack_end(self.ram_val, False, False, 0)
-        card.pack_start(ram_row, False, False, 2)
+        # 2. RAM Sparkline (Electric Violet #c084fc)
+        self.ram_box, self.ram_val, self.ram_spark = create_stat_block("RAM", "3.2G / 6.0G", (0.75, 0.50, 1.0), "stat-val-ram")
+        card.pack_start(self.ram_box, False, False, 1)
 
-        # Row 3: GPU
-        gpu_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gpu_lbl = Gtk.Label(label="GPU")
-        gpu_lbl.set_xalign(0.0)
-        gpu_lbl.get_style_context().add_class("stat-label")
-        self.gpu_prog = Gtk.ProgressBar()
-        self.gpu_prog.set_fraction(0.12)
-        self.gpu_val = Gtk.Label(label="12%")
-        self.gpu_val.get_style_context().add_class("stat-val")
-        gpu_row.pack_start(gpu_lbl, False, False, 0)
-        gpu_row.pack_start(self.gpu_prog, True, True, 0)
-        gpu_row.pack_end(self.gpu_val, False, False, 0)
-        card.pack_start(gpu_row, False, False, 2)
+        # 3. GPU Sparkline (Azure Blue #38bdf8)
+        self.gpu_box, self.gpu_val, self.gpu_spark = create_stat_block("GPU", "12%", (0.22, 0.75, 0.98), "stat-val-gpu")
+        card.pack_start(self.gpu_box, False, False, 1)
 
-        # Row 4: Temp
-        temp_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        temp_lbl = Gtk.Label(label="Temp")
-        temp_lbl.set_xalign(0.0)
-        temp_lbl.get_style_context().add_class("stat-label")
-        temp_icon = Gtk.Label(label="󰔏")
-        temp_icon.get_style_context().add_class("stat-temp-icon")
-        self.temp_val = Gtk.Label(label="52°C")
-        self.temp_val.get_style_context().add_class("stat-val")
-        temp_row.pack_start(temp_lbl, False, False, 0)
-        temp_row.pack_start(temp_icon, False, False, 4)
-        temp_row.pack_end(self.temp_val, False, False, 0)
-        card.pack_start(temp_row, False, False, 2)
+        # 4. TEMP Sparkline (Emerald Mint #34d399)
+        self.temp_box, self.temp_val, self.temp_spark = create_stat_block("TEMP", "28°C", (0.20, 0.85, 0.60), "stat-val-temp")
+        card.pack_start(self.temp_box, False, False, 1)
 
         self.add(card)
 
@@ -454,8 +494,27 @@ class StarkSysmonWidget(Gtk.Window):
         except Exception:
             pass
 
+    def set_anim_progress(self, progress):
+        """Assembles graph curves and counts up digital readouts during boot-up."""
+        p = max(0.01, min(1.0, progress))
+        self.cpu_spark.set_data(list(self.cpu_history), anim_progress=p)
+        self.ram_spark.set_data(list(self.ram_history), anim_progress=p)
+        self.gpu_spark.set_data(list(self.gpu_history), anim_progress=p)
+        self.temp_spark.set_data(list(self.temp_history), anim_progress=p)
+        
+        if p < 0.95:
+            self.cpu_val.set_text(f"{int(self.latest_cpu * p * 100)}%")
+            self.ram_val.set_text(f"{self.latest_ram * p:.1f}G / {self.latest_ram_tot:.0f}G")
+            self.gpu_val.set_text(f"{int(self.latest_gpu * p * 100)}%")
+            self.temp_val.set_text(f"{int(self.latest_temp * p)}°C")
+        else:
+            self.cpu_val.set_text(f"{int(self.latest_cpu * 100)}%")
+            self.ram_val.set_text(f"{self.latest_ram:.1f}G / {self.latest_ram_tot:.0f}G")
+            self.gpu_val.set_text(f"{int(self.latest_gpu * 100)}%")
+            self.temp_val.set_text(f"{int(self.latest_temp)}°C")
+
     def update(self):
-        # 1. Real Working Live CPU calculation
+        # 1. Live CPU calculation
         try:
             with open('/proc/stat', 'r') as f:
                 fields = [float(x) for x in f.readline().strip().split()[1:]]
@@ -469,9 +528,9 @@ class StarkSysmonWidget(Gtk.Window):
                 cpu_pct = max(0.04, min(0.98, (diff_total - diff_idle) / diff_total))
             else:
                 cpu_pct = 0.20
+            self.latest_cpu = cpu_pct
             self.cpu_history.append(cpu_pct)
-            self.sparkline.set_data(list(self.cpu_history))
-            self.cpu_prog.set_fraction(cpu_pct)
+            self.cpu_spark.set_data(list(self.cpu_history))
             self.cpu_val.set_text(f"{int(cpu_pct * 100)}%")
         except Exception:
             pass
@@ -485,22 +544,61 @@ class StarkSysmonWidget(Gtk.Window):
             mem_avail = int(lines[2].split()[1]) / 1048576.0 if len(lines) > 2 else mem_free
             mem_used = max(0.0, mem_tot - mem_avail)
             ram_pct = mem_used / max(mem_tot, 1.0)
-            self.ram_prog.set_fraction(ram_pct)
+            self.latest_ram = mem_used
+            self.latest_ram_tot = mem_tot
+            self.ram_history.append(ram_pct)
+            self.ram_spark.set_data(list(self.ram_history))
             self.ram_val.set_text(f"{mem_used:.1f}G / {mem_tot:.0f}G")
         except Exception:
             pass
 
-        # 3. Live Temp calculation
+        # 3. Live GPU calculation
         try:
-            temp_c = 52
+            gpu_pct = 0.12
+            # Check Intel DRM frequency
+            if os.path.exists('/sys/class/drm/card1/gt_act_freq_mhz'):
+                with open('/sys/class/drm/card1/gt_act_freq_mhz', 'r') as f:
+                    act_mhz = float(f.read().strip())
+                max_mhz = 1100.0
+                min_mhz = 200.0
+                if os.path.exists('/sys/class/drm/card1/gt_max_freq_mhz'):
+                    with open('/sys/class/drm/card1/gt_max_freq_mhz', 'r') as f:
+                        max_mhz = float(f.read().strip())
+                if os.path.exists('/sys/class/drm/card1/gt_min_freq_mhz'):
+                    with open('/sys/class/drm/card1/gt_min_freq_mhz', 'r') as f:
+                        min_mhz = float(f.read().strip())
+                span = max(max_mhz - min_mhz, 1.0)
+                gpu_pct = max(0.05, min(0.95, (act_mhz - min_mhz) / span))
+            self.latest_gpu = gpu_pct
+            self.gpu_history.append(gpu_pct)
+            self.gpu_spark.set_data(list(self.gpu_history))
+            self.gpu_val.set_text(f"{int(gpu_pct * 100)}%")
+        except Exception:
+            pass
+
+        # 4. Live Temp calculation
+        try:
+            temp_c = 28
             for path in ['/sys/class/thermal/thermal_zone0/temp', '/sys/class/thermal/thermal_zone1/temp', '/sys/class/thermal/thermal_zone2/temp']:
                 if os.path.exists(path):
                     with open(path, 'r') as f:
                         temp_c = int(int(f.read().strip()) / 1000)
                     break
+            self.latest_temp = temp_c
+            # Scale 20C-80C to 0.05-0.95
+            temp_pct = max(0.05, min(0.95, (temp_c - 20) / 60.0))
+            self.temp_history.append(temp_pct)
+            self.temp_spark.set_data(list(self.temp_history))
             self.temp_val.set_text(f"{temp_c}°C")
         except Exception:
             pass
+
+    def vis_tick(self):
+        """Drives the silky 50 FPS constant horizontal flow of all 4 graphs."""
+        self.cpu_spark.tick_flow()
+        self.ram_spark.tick_flow()
+        self.gpu_spark.tick_flow()
+        self.temp_spark.tick_flow()
 
 
 # ==============================================================================
@@ -517,7 +615,7 @@ class StarkWeatherWidget(Gtk.Window):
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.BOTTOM)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
-        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, 226)
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, 255)
         GtkLayerShell.set_margin(self, GtkLayerShell.Edge.RIGHT, 28)
         GtkLayerShell.set_exclusive_zone(self, 0)
         GtkLayerShell.set_namespace(self, "stark-weather")
@@ -525,7 +623,7 @@ class StarkWeatherWidget(Gtk.Window):
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         card.get_style_context().add_class("stark-glass-card")
-        card.set_size_request(205, 116)
+        card.set_size_request(280, 116)
 
         # Header: City Name + AccuWeather Pill
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -926,7 +1024,7 @@ class StarkQuoteWidget(Gtk.Window):
 
 
 # ==============================================================================
-# MAIN APPLICATION CONTROLLER
+# MAIN APPLICATION CONTROLLER WITH HOLOGRAPHIC BOOT ANIMATION
 # ==============================================================================
 class StarkWidgetsApp:
     def __init__(self):
@@ -938,11 +1036,26 @@ class StarkWidgetsApp:
         self.music_win = StarkMusicWidget()
         self.quote_win = StarkQuoteWidget()
 
-        self.clock_win.show_all()
-        self.sysmon_win.show_all()
-        self.weather_win.show_all()
-        self.music_win.show_all()
-        self.quote_win.show_all()
+        self.all_windows = [
+            self.clock_win,
+            self.sysmon_win,
+            self.weather_win,
+            self.music_win,
+            self.quote_win
+        ]
+
+        # Initial zero-opacity state before boot materialization
+        for win in self.all_windows:
+            win.set_opacity(0.0)
+            win.show_all()
+
+        # Prime initial hardware stats
+        self.sysmon_win.update()
+
+        # Start Holographic Boot Animation Loop (16ms / 60 FPS)
+        self.boot_start_time = time.time()
+        self.boot_duration = 0.85  # 850ms high-tech boot sequence
+        GLib.timeout_add(16, self._boot_animation_tick)
 
         # Regular 1s tick for clock, sysmon & quote
         GLib.timeout_add_seconds(1, self.tick)
@@ -954,6 +1067,43 @@ class StarkWidgetsApp:
         GLib.timeout_add_seconds(600, self.weather_tick)
 
         atexit.register(self.cleanup)
+
+    def _boot_animation_tick(self):
+        elapsed = time.time() - self.boot_start_time
+        if elapsed >= self.boot_duration:
+            # Animation complete: ensure full opacity and normal state
+            for win in self.all_windows:
+                win.set_opacity(1.0)
+            self.sysmon_win.set_anim_progress(1.0)
+            return False
+
+        # Phase 1: Holographic Ionization Micro-Flicker (0 - 240ms)
+        if elapsed < 0.24:
+            t_ms = elapsed * 1000.0
+            if t_ms < 40:
+                op = 0.05 + (t_ms / 40.0) * 0.70
+            elif t_ms < 90:
+                op = 0.20 + ((t_ms - 40) / 50.0) * 0.15
+            elif t_ms < 140:
+                op = 0.88 + ((t_ms - 90) / 50.0) * 0.10
+            elif t_ms < 190:
+                op = 0.35 + ((t_ms - 140) / 50.0) * 0.20
+            else:
+                op = 0.85 + ((t_ms - 190) / 50.0) * 0.15
+            for win in self.all_windows:
+                win.set_opacity(max(0.05, min(1.0, op)))
+            self.sysmon_win.set_anim_progress(0.05)
+        else:
+            # Phase 2: Parts Assembling Sweep (240ms - 850ms)
+            for win in self.all_windows:
+                win.set_opacity(1.0)
+
+            sweep_t = (elapsed - 0.24) / (self.boot_duration - 0.24)
+            # Cubic ease-out curve for assembly sweep
+            progress = 1.0 - math.pow(1.0 - sweep_t, 3)
+            self.sysmon_win.set_anim_progress(progress)
+
+        return True
 
     def cleanup(self):
         try:
@@ -988,6 +1138,7 @@ class StarkWidgetsApp:
 
     def vis_tick(self):
         self.music_win.vis_tick()
+        self.sysmon_win.vis_tick()
         return True
 
 
