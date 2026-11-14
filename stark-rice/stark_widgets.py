@@ -93,15 +93,16 @@ def draw_bezier_curve(cr, points):
 
 
 class GlowingSparkline(Gtk.DrawingArea):
-    """Real-time Bezier sparkline with continuous 50 FPS smooth flow and assembly sweep support."""
+    """Real-time Bezier sparkline with continuous 50 FPS smooth flow, zero-gap probe dot, and assembly sweep."""
     def __init__(self, color_rgb=(0.22, 0.74, 0.97), width=252, height=15):
         super().__init__()
         self.color_rgb = color_rgb
         self.width = width
         self.height = height
         self.num_intervals = 16
-        # Buffer holds num_intervals + 1 points for continuous leftward flow
-        self.data = [0.20] * (self.num_intervals + 1)
+        # Buffer holds num_intervals + 2 points (18 points) so the line extends past w at all offsets
+        self.target_points = self.num_intervals + 2
+        self.data = [0.20] * self.target_points
         self.anim_progress = 1.0
         self.last_metric_time = time.time()
         self.update_interval = 1.0
@@ -109,11 +110,11 @@ class GlowingSparkline(Gtk.DrawingArea):
         self.connect("draw", self.on_draw)
 
     def set_data(self, new_data, anim_progress=1.0):
-        if len(new_data) < (self.num_intervals + 1):
-            pad = [new_data[0]] * ((self.num_intervals + 1) - len(new_data))
+        if len(new_data) < self.target_points:
+            pad = [new_data[0]] * (self.target_points - len(new_data))
             self.data = pad + list(new_data)
         else:
-            self.data = list(new_data[-(self.num_intervals + 1):])
+            self.data = list(new_data[-self.target_points:])
         self.anim_progress = anim_progress
         self.last_metric_time = time.time()
         self.queue_draw()
@@ -156,8 +157,8 @@ class GlowingSparkline(Gtk.DrawingArea):
         # 1. Subtle gradient shading fill under curve
         cr.save()
         draw_bezier_curve(cr, points)
-        cr.line_to(w + 20, h)
-        cr.line_to(-20, h)
+        cr.line_to(w + 30, h)
+        cr.line_to(-30, h)
         cr.close_path()
 
         grad = cairo.LinearGradient(0, pad_top, 0, h)
@@ -176,7 +177,7 @@ class GlowingSparkline(Gtk.DrawingArea):
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
         cr.stroke()
 
-        # 3. Clean laser core stroke
+        # 3. Clean laser core stroke (seamlessly runs through entire span)
         draw_bezier_curve(cr, points)
         cr.set_source_rgba(0.92, 0.98, 1.0, 0.95)
         cr.set_line_width(1.1)
@@ -184,7 +185,7 @@ class GlowingSparkline(Gtk.DrawingArea):
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
         cr.stroke()
 
-        # 4. Terminal glowing node at the leading edge
+        # 4. Terminal glowing node seamlessly centered on the curve at the right edge
         if self.anim_progress >= 0.92:
             v_prev = self.data[-2]
             v_next = self.data[-1]
@@ -407,11 +408,11 @@ class StarkSysmonWidget(Gtk.Window):
         self.prev_idle = 0
         self.prev_total = 0
         
-        # Live History Deques (14 points each for smooth Bezier curves)
-        self.cpu_history = deque([0.15, 0.18, 0.22, 0.25, 0.20, 0.18, 0.24, 0.28, 0.22, 0.18, 0.20, 0.22], maxlen=16)
-        self.ram_history = deque([0.55, 0.56, 0.58, 0.60, 0.62, 0.65, 0.68, 0.69, 0.70, 0.70, 0.71, 0.70], maxlen=16)
-        self.gpu_history = deque([0.08, 0.10, 0.12, 0.15, 0.10, 0.08, 0.14, 0.18, 0.15, 0.12, 0.10, 0.12], maxlen=16)
-        self.temp_history = deque([0.25, 0.26, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27], maxlen=16)
+        # Live History Deques (18 points each for seamless zero-gap Bezier stream)
+        self.cpu_history = deque([0.18, 0.20, 0.22, 0.25, 0.20, 0.18, 0.24, 0.28, 0.22, 0.18, 0.20, 0.22, 0.24, 0.22, 0.20, 0.22, 0.25, 0.22], maxlen=24)
+        self.ram_history = deque([0.55, 0.56, 0.58, 0.60, 0.62, 0.65, 0.68, 0.69, 0.70, 0.70, 0.71, 0.70, 0.70, 0.71, 0.72, 0.71, 0.70, 0.71], maxlen=24)
+        self.gpu_history = deque([0.08, 0.10, 0.12, 0.15, 0.10, 0.08, 0.14, 0.18, 0.15, 0.12, 0.10, 0.12, 0.10, 0.12, 0.14, 0.12, 0.10, 0.12], maxlen=24)
+        self.temp_history = deque([0.25, 0.26, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27, 0.26, 0.27, 0.28, 0.27, 0.26, 0.27], maxlen=24)
         
         self.latest_cpu = 0.22
         self.latest_ram = 3.2
@@ -623,7 +624,7 @@ class StarkWeatherWidget(Gtk.Window):
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         card.get_style_context().add_class("stark-glass-card")
-        card.set_size_request(280, 116)
+        card.set_size_request(205, 116)
 
         # Header: City Name + AccuWeather Pill
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -1052,9 +1053,18 @@ class StarkWidgetsApp:
         # Prime initial hardware stats
         self.sysmon_win.update()
 
-        # Start Holographic Boot Animation Loop (16ms / 60 FPS)
+        # Start Sequential Holographic Boot Animation Loop (16ms / 60 FPS)
+        # Sequence: 1. System Monitor -> 2. Weather -> 3. Quote -> 4. Music -> 5. Clock
+        self.seq_timeline = [
+            ("sysmon", self.sysmon_win, 0.0),
+            ("weather", self.weather_win, 0.38),
+            ("quote", self.quote_win, 0.76),
+            ("music", self.music_win, 1.14),
+            ("clock", self.clock_win, 1.52),
+        ]
+        self.item_dur = 0.48
+        self.boot_duration = 2.10
         self.boot_start_time = time.time()
-        self.boot_duration = 0.85  # 850ms high-tech boot sequence
         GLib.timeout_add(16, self._boot_animation_tick)
 
         # Regular 1s tick for clock, sysmon & quote
@@ -1071,37 +1081,42 @@ class StarkWidgetsApp:
     def _boot_animation_tick(self):
         elapsed = time.time() - self.boot_start_time
         if elapsed >= self.boot_duration:
-            # Animation complete: ensure full opacity and normal state
-            for win in self.all_windows:
+            for _, win, _ in self.seq_timeline:
                 win.set_opacity(1.0)
             self.sysmon_win.set_anim_progress(1.0)
             return False
 
-        # Phase 1: Holographic Ionization Micro-Flicker (0 - 240ms)
-        if elapsed < 0.24:
-            t_ms = elapsed * 1000.0
-            if t_ms < 40:
-                op = 0.05 + (t_ms / 40.0) * 0.70
-            elif t_ms < 90:
-                op = 0.20 + ((t_ms - 40) / 50.0) * 0.15
-            elif t_ms < 140:
-                op = 0.88 + ((t_ms - 90) / 50.0) * 0.10
-            elif t_ms < 190:
-                op = 0.35 + ((t_ms - 140) / 50.0) * 0.20
+        for name, win, t_start in self.seq_timeline:
+            rel = elapsed - t_start
+            if rel < 0.0:
+                win.set_opacity(0.0)
+                if name == "sysmon":
+                    self.sysmon_win.set_anim_progress(0.01)
+            elif rel < self.item_dur:
+                # Longer, detailed high-tech ionization micro-flicker
+                t_ms = rel * 1000.0
+                if t_ms < 50:
+                    op = 0.05 + (t_ms / 50.0) * 0.70
+                elif t_ms < 110:
+                    op = 0.18 + ((t_ms - 50) / 60.0) * 0.10
+                elif t_ms < 180:
+                    op = 0.90 + ((t_ms - 110) / 70.0) * 0.05
+                elif t_ms < 240:
+                    op = 0.28 + ((t_ms - 180) / 60.0) * 0.15
+                elif t_ms < 330:
+                    op = 0.96 + ((t_ms - 240) / 90.0) * 0.03
+                elif t_ms < 400:
+                    op = 0.82 + ((t_ms - 330) / 70.0) * 0.18
+                else:
+                    op = 1.0
+                win.set_opacity(max(0.0, min(1.0, op)))
+                if name == "sysmon":
+                    p = max(0.02, min(1.0, rel / self.item_dur))
+                    self.sysmon_win.set_anim_progress(p)
             else:
-                op = 0.85 + ((t_ms - 190) / 50.0) * 0.15
-            for win in self.all_windows:
-                win.set_opacity(max(0.05, min(1.0, op)))
-            self.sysmon_win.set_anim_progress(0.05)
-        else:
-            # Phase 2: Parts Assembling Sweep (240ms - 850ms)
-            for win in self.all_windows:
                 win.set_opacity(1.0)
-
-            sweep_t = (elapsed - 0.24) / (self.boot_duration - 0.24)
-            # Cubic ease-out curve for assembly sweep
-            progress = 1.0 - math.pow(1.0 - sweep_t, 3)
-            self.sysmon_win.set_anim_progress(progress)
+                if name == "sysmon":
+                    self.sysmon_win.set_anim_progress(1.0)
 
         return True
 
