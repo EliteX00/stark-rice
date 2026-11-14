@@ -1,0 +1,265 @@
+/* Waybar Slim Space-Saving Frosted Glass Stylesheet */
+
+* {
+    border: none;
+    border-radius: 0;
+    font-family: "JetBrainsMono Nerd Font", "Google Sans Flex", sans-serif;
+    font-size: 11px;
+    min-height: 0;
+    box-shadow: none;
+    text-shadow: none;
+}
+
+window#waybar {
+    background-color: transparent;
+    color: #ffffff;
+    border: none;
+    box-shadow: none;
+}
+
+/* ==========================================================================
+   TOP BAR (Slim Space-Saving Floating Islands)
+   ========================================================================== */
+window#waybar.topbar {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+/* Left Island: Arch Logo */
+window#waybar.topbar .modules-left {
+    background-color: rgba(10, 16, 26, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 0 10px;
+    margin-left: 0;
+}
+
+#custom-arch {
+    color: #e2e8f0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 1px 4px;
+}
+
+/* Center Island: Workspaces (Expanded Scroll Area) */
+window#waybar.topbar .modules-center {
+    background-color: rgba(10, 16, 26, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 1px 6px;
+}
+
+#custom-scroll_lpad,
+#custom-scroll_rpad {
+    min-width: 48px;
+    background: transparent;
+}
+
+#workspaces {
+    background: transparent;
+}
+
+#workspaces button {
+    padding: 1px 11px;
+    margin: 0 2px;
+    background: transparent;
+    color: #cbd5e1;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+#workspaces button:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.10);
+}
+
+#workspaces button.active {
+    background-color: #3b82f6;
+    color: #ffffff;
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 1px 13px;
+}
+
+/* Right Island: Stats & Clock */
+window#waybar.topbar .modules-right {
+    background-color: rgba(10, 16, 26, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 1px 10px;
+    margin-right: 0;
+}
+
+#cpu, #memory, #network, #pulseaudio, #clock {
+    padding: 0 5px;
+    color: #f1f5f9;
+    font-size: 11px;
+}
+
+#cpu {
+    color: #cbd5e1;
+}
+
+#memory {
+    color: #cbd5e1;
+}
+
+#network {
+    color: #cbd5e1;
+    font-size: 12px;
+}
+
+#pulseaudio {
+    color: #cbd5e1;
+    font-size: 12px;
+}
+
+#clock {
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 11px;
+    padding-left: 4px;
+    padding-right: 2px;
+}
+
+/* ==========================================================================
+   LEFT DOCK (Vertical Floating Capsule - Glass App Tiles)
+   ========================================================================== */
+window#waybar.leftdock {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+window#waybar.leftdock .modules-center {
+    background-color: rgba(10, 16, 26, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 6px 0;
+}
+
+/* Individual App Launcher & System Tiles (Matching Squircle Style from Reference) */
+#custom-dock_menu,
+#custom-dock_cli,
+#custom-dock_files,
+#custom-dock_brave,
+#custom-dock_discord,
+#custom-dock_vscode,
+#custom-dock_music,
+#pulseaudio.dock,
+#idle_inhibitor.dock {
+    margin: 3px 5px;
+    padding: 6px 0;
+    border-radius: 10px;
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: #7aa2f7;
+    font-size: 15px;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Unified Stark Periwinkle Accent Palette */
+#custom-dock_menu {
+    color: #89b4fa;
+}
+
+#custom-dock_cli {
+    color: #7aa2f7;
+}
+
+#custom-dock_files {
+    color: #7aa2f7;
+}
+
+#custom-dock_brave {
+    color: #7aa2f7;
+}
+
+#custom-dock_discord {
+    color: #818cf8;
+}
+
+#custom-dock_vscode {
+    color: #7aa2f7;
+}
+
+#custom-dock_music {
+    color: #7aa2f7;
+}
+
+#pulseaudio.dock {
+    color: #7aa2f7;
+}
+
+#idle_inhibitor.dock {
+    color: #7aa2f7;
+}
+
+/* Hover highlights for tiles */
+#custom-dock_menu:hover,
+#custom-dock_cli:hover,
+#custom-dock_files:hover,
+#custom-dock_brave:hover,
+#custom-dock_discord:hover,
+#custom-dock_vscode:hover,
+#custom-dock_music:hover,
+#pulseaudio.dock:hover,
+#idle_inhibitor.dock:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+
+/* Caffeine Active State */
+#idle_inhibitor.dock.activated {
+    color: #f59e0b;
+    background-color: rgba(245, 158, 11, 0.18);
+    border-color: rgba(245, 158, 11, 0.40);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.30);
+}
+
+#idle_inhibitor.dock.activated:hover {
+    color: #fbbf24;
+    background-color: rgba(245, 158, 11, 0.28);
+}
+
+/* Divider */
+#custom-dock_div {
+    color: rgba(255, 255, 255, 0.15);
+    font-size: 10px;
+    padding: 1px 0;
+    margin: 2px 0;
+}
+
+/* Volume Drawer & Slider */
+#pulseaudio-slider.dock {
+    min-height: 80px;
+    margin: 4px 6px;
+    padding: 4px 0;
+}
+
+#pulseaudio-slider.dock trough {
+    min-width: 6px;
+    min-height: 80px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+#pulseaudio-slider.dock highlight {
+    min-width: 6px;
+    border-radius: 3px;
+    background: linear-gradient(to top, #38bdf8, #818cf8);
+}
+
+#pulseaudio-slider.dock slider {
+    min-width: 12px;
+    min-height: 12px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.7);
+}
