@@ -93,7 +93,7 @@ def draw_bezier_curve(cr, points):
 
 
 class GlowingSparkline(Gtk.DrawingArea):
-    """Real-time Bezier sparkline with continuous 50 FPS smooth flow, zero-gap probe dot, and assembly sweep."""
+    """Real-time Bezier sparkline with continuous smooth flow, zero-gap probe dot, and assembly sweep."""
     def __init__(self, color_rgb=(0.22, 0.74, 0.97), width=252, height=15):
         super().__init__()
         self.color_rgb = color_rgb
@@ -106,6 +106,8 @@ class GlowingSparkline(Gtk.DrawingArea):
         self.anim_progress = 1.0
         self.last_metric_time = time.time()
         self.update_interval = 1.0
+        self.fill_grad = None
+        self.cached_h = None
         self.set_size_request(width, height)
         self.connect("draw", self.on_draw)
 
@@ -120,7 +122,7 @@ class GlowingSparkline(Gtk.DrawingArea):
         self.queue_draw()
 
     def tick_flow(self):
-        """Called by 50 FPS animation loop to smoothly animate horizontal stream flow."""
+        """Called by animation loop to smoothly animate horizontal stream flow."""
         self.queue_draw()
 
     def on_draw(self, widget, cr):
@@ -154,35 +156,34 @@ class GlowingSparkline(Gtk.DrawingArea):
             x = (i - offset) * step
             points.append((x, y))
 
-        # 1. Subtle gradient shading fill under curve
+        # 1. Subtle gradient shading fill under curve (reuse cached gradient)
         cr.save()
         draw_bezier_curve(cr, points)
         cr.line_to(w + 30, h)
         cr.line_to(-30, h)
         cr.close_path()
 
-        grad = cairo.LinearGradient(0, pad_top, 0, h)
-        grad.add_color_stop_rgba(0.0, r, g, b, 0.32)
-        grad.add_color_stop_rgba(0.5, r, g, b, 0.12)
-        grad.add_color_stop_rgba(1.0, r, g, b, 0.02)
-        cr.set_source(grad)
+        if self.fill_grad is None or self.cached_h != h:
+            self.cached_h = h
+            self.fill_grad = cairo.LinearGradient(0, pad_top, 0, h)
+            self.fill_grad.add_color_stop_rgba(0.0, r, g, b, 0.32)
+            self.fill_grad.add_color_stop_rgba(0.5, r, g, b, 0.12)
+            self.fill_grad.add_color_stop_rgba(1.0, r, g, b, 0.02)
+        cr.set_source(self.fill_grad)
         cr.fill()
         cr.restore()
 
-        # 2. Glowing outer stroke
+        # 2 & 3. Single-pass Bezier curve evaluation for glowing outer stroke + laser core
         draw_bezier_curve(cr, points)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+
         cr.set_source_rgba(r, g, b, 0.35)
         cr.set_line_width(2.6)
-        cr.set_line_cap(cairo.LINE_CAP_ROUND)
-        cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        cr.stroke()
+        cr.stroke_preserve()
 
-        # 3. Clean laser core stroke (seamlessly runs through entire span)
-        draw_bezier_curve(cr, points)
         cr.set_source_rgba(0.92, 0.98, 1.0, 0.95)
         cr.set_line_width(1.1)
-        cr.set_line_cap(cairo.LINE_CAP_ROUND)
-        cr.set_line_join(cairo.LINE_JOIN_ROUND)
         cr.stroke()
 
         # 4. Terminal glowing node seamlessly centered on the curve at the right edge
@@ -958,26 +959,31 @@ class StarkMusicWidget(Gtk.Window):
             self.wave_bar.progress = self.target_progress
 
     def vis_tick(self):
-        """Ultra-smooth 50 FPS animation tick with CAVA audio FFT reaction and smooth lerp."""
+        """Animation tick with CAVA audio FFT reaction and smooth lerp."""
         if self.is_playing:
             targets = self.cava.get_bars()
         else:
             targets = [3.0] * 10
 
+        needs_draw = False
         # Snappy rise to beats, graceful decay
         for i in range(len(self.wave_bar.bars)):
             cur = self.wave_bar.bars[i]
             tgt = targets[i]
             diff = tgt - cur
-            rate = 0.42 if diff > 0 else 0.20
-            self.wave_bar.bars[i] = cur + (diff * rate)
+            if abs(diff) > 0.05:
+                rate = 0.42 if diff > 0 else 0.20
+                self.wave_bar.bars[i] = cur + (diff * rate)
+                needs_draw = True
 
         # Smooth progress interpolation between 250ms state updates
         if self.is_playing and self.current_duration > 0:
-            step = 0.020 / self.current_duration  # 20ms tick
+            step = 0.033 / self.current_duration
             self.wave_bar.progress = min(1.0, max(0.0, self.wave_bar.progress + step))
+            needs_draw = True
 
-        self.wave_bar.queue_draw()
+        if needs_draw:
+            self.wave_bar.queue_draw()
         return True
 
     def cleanup(self):
@@ -1064,8 +1070,8 @@ class StarkWidgetsApp:
         GLib.timeout_add_seconds(1, self.tick)
         # 250ms tick for music state updates
         GLib.timeout_add(250, self.music_state_tick)
-        # Ultra-smooth 20ms (50 FPS) visualizer animation loop
-        GLib.timeout_add(20, self.vis_tick)
+        # Silky-smooth 33ms (~30 FPS) visualizer animation loop (optimized for low GPU load)
+        GLib.timeout_add(33, self.vis_tick)
         # 10-minute periodic weather refresh tick
         GLib.timeout_add_seconds(600, self.weather_tick)
 
