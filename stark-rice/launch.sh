@@ -8,6 +8,8 @@ killall -9 waybar.real waybar 2>/dev/null || true
 pkill -9 -f "stark_widgets.py" 2>/dev/null || true
 pkill -9 -f "cava_widget.conf" 2>/dev/null || true
 pkill -9 -f "zenify_discord_rpc.py" 2>/dev/null || true
+pkill -9 -f "stark_launcher.py" 2>/dev/null || true
+rm -f /tmp/stark_launcher.sock
 sleep 0.5
 
 # 1. Wallpaper
@@ -26,6 +28,9 @@ setsid python3 "$DIR/stark_sunset.py" --daemon > /dev/null 2>&1 &
 
 # 5. Zenify Discord Rich Presence daemon
 setsid python3 "$DIR/zenify_discord_rpc.py" > /dev/null 2>&1 &
+
+# 6. Stark Minimalist Frosted App Launcher Daemon
+setsid python3 "$DIR/stark_launcher.py" --daemon > /dev/null 2>&1 &
 
 # 6. J.A.R.V.I.S. System Voice Greeting (Disabled for now)
 # if [ -f "$DIR/jarvis_config.json" ]; then
