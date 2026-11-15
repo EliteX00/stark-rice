@@ -148,9 +148,9 @@
     },
     "custom/dock_brave": {
       "format": " ",
-      "on-click": "brave",
+      "on-click": "brave-origin",
       "tooltip": true,
-      "tooltip-format": "Brave Browser"
+      "tooltip-format": "Brave Origin"
     },
     "custom/dock_discord": {
       "format": " ",
