@@ -258,13 +258,13 @@ window#waybar.leftdock .modules-center {
 #pulseaudio.dock {
     font-family: "JetBrainsMono Nerd Font Propo", "Google Sans Flex", sans-serif;
     color: #38bdf8;
-    font-size: 15px;
+    font-size: 13px;
 }
 
 #idle_inhibitor.dock {
     font-family: "JetBrainsMono Nerd Font Propo", "Google Sans Flex", sans-serif;
     color: #94a3b8;
-    font-size: 15px;
+    font-size: 13px;
 }
 
 /* Hover highlights for tiles */
