@@ -28,42 +28,64 @@ window#waybar.topbar {
 
 /* Left Island: Arch Logo */
 window#waybar.topbar .modules-left {
-    background-color: rgba(10, 16, 26, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    padding: 0 10px;
-    margin-left: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
 }
 
 #custom-arch {
+    background-color: rgba(10, 16, 26, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
     color: #e2e8f0;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.4px;
-    padding: 1px 4px;
+    padding: 1px 10px;
 }
 
-/* Center Island: Workspaces (Expanded Scroll Area) */
+/* Center Island: Workspaces (Compact & Clean) */
 window#waybar.topbar .modules-center {
-    background-color: rgba(10, 16, 26, 0.28);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    padding: 1px 6px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
 }
 
-#custom-scroll_lpad,
-#custom-scroll_rpad {
-    min-width: 48px;
+#custom-scroll_gap_left {
+    min-width: 480px;
     background: transparent;
+    border: none;
+    box-shadow: none;
+    color: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+#custom-scroll_gap_right {
+    min-width: 340px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: transparent;
+    padding: 0;
+    margin: 0;
 }
 
 #workspaces {
-    background: transparent;
+    background-color: rgba(10, 16, 26, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 0 4px;
+    margin: 0;
 }
 
 #workspaces button {
-    padding: 1px 11px;
-    margin: 0 2px;
+    padding: 1px 7px;
+    margin: 0 1px;
     background: transparent;
     color: #cbd5e1;
     border-radius: 10px;
@@ -82,16 +104,23 @@ window#waybar.topbar .modules-center {
     color: #ffffff;
     font-weight: 600;
     border-radius: 10px;
-    padding: 1px 13px;
+    padding: 1px 10px;
 }
 
 /* Right Island: Stats & Clock */
 window#waybar.topbar .modules-right {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+#group-stats {
     background-color: rgba(10, 16, 26, 0.28);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 14px;
     padding: 1px 10px;
-    margin-right: 0;
 }
 
 #cpu, #memory, #network, #pulseaudio, #clock {
@@ -142,7 +171,7 @@ window#waybar.leftdock .modules-center {
     padding: 6px 0;
 }
 
-/* Individual App Launcher & System Tiles (Matching Squircle Style from Reference) */
+/* Individual App Launcher & System Tiles (Centered Squircle Cards) */
 #custom-dock_menu,
 #custom-dock_cli,
 #custom-dock_files,
@@ -152,51 +181,90 @@ window#waybar.leftdock .modules-center {
 #custom-dock_music,
 #pulseaudio.dock,
 #idle_inhibitor.dock {
+    min-width: 32px;
+    min-height: 32px;
     margin: 3px 5px;
-    padding: 6px 0;
+    padding: 0;
     border-radius: 10px;
     background-color: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    color: #7aa2f7;
-    font-size: 15px;
     transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Unified Stark Periwinkle Accent Palette */
+#custom-dock_menu label,
+#custom-dock_cli label,
+#custom-dock_files label,
+#custom-dock_brave label,
+#custom-dock_discord label,
+#custom-dock_vscode label,
+#custom-dock_music label {
+    color: transparent;
+    font-size: 1px;
+    margin: 0;
+    padding: 0;
+}
+
+/* Original App Icons with Full Colors */
 #custom-dock_menu {
-    color: #89b4fa;
+    background-image: url("/home/elitex/.config/stark-rice/icons/menu.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
 #custom-dock_cli {
-    color: #7aa2f7;
+    background-image: url("/home/elitex/.config/stark-rice/icons/cli.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
 #custom-dock_files {
-    color: #7aa2f7;
+    background-image: url("/home/elitex/.config/stark-rice/icons/thunar.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
 #custom-dock_brave {
-    color: #7aa2f7;
+    background-image: url("/home/elitex/.config/stark-rice/icons/brave.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
 #custom-dock_discord {
-    color: #818cf8;
+    background-image: url("/home/elitex/.config/stark-rice/icons/discord.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
 #custom-dock_vscode {
-    color: #7aa2f7;
+    background-image: url("/home/elitex/.config/stark-rice/icons/vscode.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
 #custom-dock_music {
-    color: #7aa2f7;
+    background-image: url("/home/elitex/.config/stark-rice/icons/spotify.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 32px 32px;
 }
 
+/* System Controls (Volume & Caffeine) */
 #pulseaudio.dock {
-    color: #7aa2f7;
+    font-family: "JetBrainsMono Nerd Font Propo", "Google Sans Flex", sans-serif;
+    color: #38bdf8;
+    font-size: 15px;
 }
 
 #idle_inhibitor.dock {
-    color: #7aa2f7;
+    font-family: "JetBrainsMono Nerd Font Propo", "Google Sans Flex", sans-serif;
+    color: #94a3b8;
+    font-size: 15px;
 }
 
 /* Hover highlights for tiles */
@@ -228,12 +296,13 @@ window#waybar.leftdock .modules-center {
     background-color: rgba(245, 158, 11, 0.28);
 }
 
-/* Divider */
+/* Divider: Razor Clean 1px Centered Line */
 #custom-dock_div {
-    color: rgba(255, 255, 255, 0.15);
-    font-size: 10px;
-    padding: 1px 0;
-    margin: 2px 0;
+    min-height: 1px;
+    margin: 4px 10px;
+    padding: 0;
+    background-color: rgba(255, 255, 255, 0.12);
+    border: none;
 }
 
 /* Volume Drawer & Slider */

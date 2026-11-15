@@ -13,20 +13,26 @@
     "margin-right": 12,
     "spacing": 0,
     "modules-left": [
-      "custom/arch"
+      "custom/arch",
+      "custom/scroll_gap_left"
     ],
     "modules-center": [
-      "custom/scroll_lpad",
-      "hyprland/workspaces",
-      "custom/scroll_rpad"
+      "hyprland/workspaces"
     ],
     "modules-right": [
-      "cpu",
-      "memory",
-      "network",
-      "pulseaudio",
-      "clock"
+      "custom/scroll_gap_right",
+      "group/stats"
     ],
+    "group/stats": {
+      "orientation": "horizontal",
+      "modules": [
+        "cpu",
+        "memory",
+        "network",
+        "pulseaudio",
+        "clock"
+      ]
+    },
     "custom/arch": {
       "format": "<span color='#5dbbfa' font='12'>󰣇</span> Hyprland",
       "on-click": "python3 /home/elitex/.config/stark-rice/stark_launcher.py --toggle",
@@ -34,13 +40,13 @@
       "on-scroll-down": "/home/elitex/.local/bin/hypr-workspace-scroll prev",
       "tooltip": false
     },
-    "custom/scroll_lpad": {
+    "custom/scroll_gap_left": {
       "format": " ",
       "tooltip": false,
       "on-scroll-up": "/home/elitex/.local/bin/hypr-workspace-scroll next",
       "on-scroll-down": "/home/elitex/.local/bin/hypr-workspace-scroll prev"
     },
-    "custom/scroll_rpad": {
+    "custom/scroll_gap_right": {
       "format": " ",
       "tooltip": false,
       "on-scroll-up": "/home/elitex/.local/bin/hypr-workspace-scroll next",
@@ -119,54 +125,53 @@
       "custom/dock_discord",
       "custom/dock_vscode",
       "custom/dock_music",
-      "custom/dock_div",
       "group/dock_volume",
       "idle_inhibitor#dock"
     ],
     "custom/dock_menu": {
-      "format": "󰀻",
+      "format": " ",
       "on-click": "python3 /home/elitex/.config/stark-rice/stark_launcher.py --toggle",
       "tooltip": true,
       "tooltip-format": "Applications (Stark Launcher)"
     },
     "custom/dock_cli": {
-      "format": "󰞷",
+      "format": " ",
       "on-click": "kitty -e /home/elitex/.local/bin/agy",
       "tooltip": true,
       "tooltip-format": "Antigravity CLI"
     },
     "custom/dock_files": {
-      "format": "󰉋",
+      "format": " ",
       "on-click": "thunar",
       "tooltip": true,
       "tooltip-format": "File Manager (Thunar)"
     },
     "custom/dock_brave": {
-      "format": "",
+      "format": " ",
       "on-click": "brave",
       "tooltip": true,
       "tooltip-format": "Brave Browser"
     },
     "custom/dock_discord": {
-      "format": "󰙯",
+      "format": " ",
       "on-click": "discord",
       "tooltip": true,
       "tooltip-format": "Discord"
     },
     "custom/dock_vscode": {
-      "format": "󰨞",
+      "format": " ",
       "on-click": "code",
       "tooltip": true,
       "tooltip-format": "Visual Studio Code"
     },
     "custom/dock_music": {
-      "format": "󰓇",
+      "format": " ",
       "on-click": "python3 /home/elitex/.config/stark-rice/stark_spotify.py --toggle",
       "tooltip": true,
       "tooltip-format": "Zenify Music Player"
     },
     "custom/dock_div": {
-      "format": "―",
+      "format": " ",
       "tooltip": false
     },
     "group/dock_volume": {
