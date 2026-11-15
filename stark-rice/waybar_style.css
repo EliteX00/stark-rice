@@ -227,7 +227,7 @@ window#waybar.leftdock .modules-center {
 }
 
 #custom-dock_brave {
-    background-image: url("/home/elitex/.config/stark-rice/icons/brave.png");
+    background-image: url("/home/elitex/.config/stark-rice/icons/brave-origin.png");
     background-repeat: no-repeat;
     background-position: center;
     background-size: 32px 32px;
