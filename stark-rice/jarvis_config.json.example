@@ -1,4 +1,8 @@
 {
+  "mode": "two-speed",
+  "agent_backend": "antigravity",
+  "antigravity_model": "gemini-3.8-flash-low",
+  "antigravity_effort": "low",
   "nim_api_key": "YOUR_NVIDIA_NIM_API_KEY",
   "deepgram_api_key": "YOUR_DEEPGRAM_API_KEY",
   "model_name": "nvidia/nemotron-3.5-bolt-e4b",

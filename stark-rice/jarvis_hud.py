@@ -165,7 +165,7 @@ class ArcReactorCore(Gtk.DrawingArea):
         state_col = (0.0, 0.85, 1.0) if self.state == "IDLE" else ((0.95, 0.75, 0.2) if self.state == "THINKING" else (0.75, 0.5, 1.0))
         cr.select_font_face("JetBrainsMono Nerd Font", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         cr.set_font_size(8.5)
-        text_str = f"J.A.R.V.I.S. NEURAL CORE  •  NEMOTRON 3.5  •  [{state_text}]"
+        text_str = f"J.A.R.V.I.S. DUAL CORE  •  ANTIGRAVITY + REFLEX  •  [{state_text}]"
         ext = cr.text_extents(text_str)
         cr.set_source_rgba(state_col[0], state_col[1], state_col[2], 0.85)
         cr.move_to(cx - ext.width / 2.0, h - 6.0)
@@ -880,10 +880,16 @@ class JarvisHudWindow(Gtk.Window):
         self.arc_reactor.set_state("THINKING")
         self._log_event("CMD", user_text[:18])
 
+        # Immediate acoustic acknowledgment callback for deep agentic queries
+        def on_ack(ack_text):
+            GLib.idle_add(self.add_message, "J.A.R.V.I.S.", ack_text)
+            GLib.idle_add(self.arc_reactor.set_state, "SPEAKING")
+            threading.Thread(target=speak_text, args=(ack_text, False), daemon=True).start()
+
         # Background worker thread so UI 60 FPS stays perfectly smooth
         def worker():
             try:
-                reply, action = query_jarvis(user_text, self.history)
+                reply, action = query_jarvis(user_text, self.history, ack_callback=on_ack)
             except Exception as e:
                 reply = f"Apologies, Sir. Communication error: {e}"
                 action = None

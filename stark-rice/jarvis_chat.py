@@ -2,7 +2,9 @@
 """
 J.A.R.V.I.S. Core Intelligence & Voice System
 Persona: J.A.R.V.I.S. (Tony Stark's British AI Assistant)
-Brain: NVIDIA NIM (Nemotron 3.5 Bolt)
+Architecture: Two-Speed Brain
+  - Speed 1 (Reflex Tier): Sub-millisecond direct hardware/media/app control & immediate feedback
+  - Speed 2 (Agentic Tier): Antigravity autonomous system agent with immediate acoustic acknowledgment
 Voice: Deepgram Aura-2 (aura-2-pluto-en)
 """
 
@@ -11,6 +13,7 @@ import sys
 import re
 import json
 import time
+import random
 import socket
 import readline
 import subprocess
@@ -26,8 +29,11 @@ HISTORY_FILE = os.path.expanduser("~/.config/stark-rice/jarvis_history")
 SOCKET_PATH = "/tmp/stark_player.sock"
 SPEECH_FILE = "/tmp/jarvis_speech.mp3"
 
-# Default settings
 DEFAULT_CONFIG = {
+    "mode": "two-speed",
+    "agent_backend": "antigravity",
+    "antigravity_model": "gemini-3.8-flash-low",
+    "antigravity_effort": "low",
     "nim_api_key": "",
     "deepgram_api_key": "",
     "model_name": "nvidia/nemotron-3.5-bolt-e4b",
@@ -38,7 +44,7 @@ DEFAULT_CONFIG = {
     "boot_greeting": True
 }
 
-# Colors
+# Terminal Colors
 CYAN = "\033[96m"
 BLUE = "\033[94m"
 GOLD = "\033[93m"
@@ -48,6 +54,15 @@ RED = "\033[91m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
+
+ACK_PHRASES = [
+    "Analyzing system parameters now, Sir...",
+    "Investigating that for you immediately, Sir...",
+    "Accessing system diagnostics, Sir...",
+    "Allow me a moment to inspect that, Sir...",
+    "Running that diagnostic protocol now, Sir...",
+    "Reviewing system logs and workspaces, Sir..."
+]
 
 
 def load_config():
@@ -61,7 +76,6 @@ def load_config():
                     break
             except Exception:
                 pass
-    # Allow environment variable overrides
     if "NIM_KEY" in os.environ:
         cfg["nim_api_key"] = os.environ["NIM_KEY"]
     if "DEEPGRAM_KEY" in os.environ:
@@ -70,23 +84,39 @@ def load_config():
 
 
 config = load_config()
-nim_api_key = config["nim_api_key"]
-deepgram_api_key = config["deepgram_api_key"]
-model_name = config["model_name"]
-voice_model = config["voice_model"]
+nim_api_key = config.get("nim_api_key", "")
+deepgram_api_key = config.get("deepgram_api_key", "")
+model_name = config.get("model_name", "nvidia/nemotron-3.5-bolt-e4b")
+voice_model = config.get("voice_model", "aura-2-pluto-en")
 playback_speed = float(config.get("playback_speed", 1.12))
 spatial_reverb = bool(config.get("spatial_reverb", False))
 voice_enabled = bool(config.get("voice_enabled", True))
+agent_backend = config.get("agent_backend", "antigravity")
+antigravity_model = config.get("antigravity_model", "gemini-3.8-flash-low")
+antigravity_effort = config.get("antigravity_effort", "low")
 
 current_speech_proc = None
 last_response_text = ""
+
+
+def get_current_music():
+    """Returns (title, artist, is_playing)."""
+    m_path = os.path.expanduser("~/.config/stark-rice/music_state.json")
+    if os.path.exists(m_path):
+        try:
+            with open(m_path, "r", encoding="utf-8") as f:
+                m = json.load(f)
+                return m.get("title", "").strip(), m.get("artist", "").strip(), m.get("is_playing", False)
+        except Exception:
+            pass
+    return "", "", False
 
 
 def get_telemetry():
     """Gathers real-time machine and environment telemetry."""
     now_str = time.strftime("%A, %B %d, %I:%M %p")
     
-    # Weather from Stark Rice cache
+    # Weather
     weather_info = "AccuWeather unavailable"
     w_path = os.path.expanduser("~/.config/stark-rice/weather_cache.json")
     if os.path.exists(w_path):
@@ -99,24 +129,17 @@ def get_telemetry():
         except Exception:
             pass
 
-    # Music state from Stark Player / Zenify
-    music_info = "No track currently queued"
-    m_path = os.path.expanduser("~/.config/stark-rice/music_state.json")
-    if os.path.exists(m_path):
-        try:
-            with open(m_path, "r", encoding="utf-8") as f:
-                m = json.load(f)
-                title = m.get("title", "").strip()
-                artist = m.get("artist", "").strip()
-                st = "Playing" if m.get("is_playing") else "Paused"
-                if title and artist:
-                    music_info = f"'{title}' by {artist} (Status: {st})"
-                elif title:
-                    music_info = f"'{title}' (Status: {st})"
-        except Exception:
-            pass
+    # Music state
+    title, artist, is_playing = get_current_music()
+    st = "Playing" if is_playing else "Paused"
+    if title and artist:
+        music_info = f"'{title}' by {artist} (Status: {st})"
+    elif title:
+        music_info = f"'{title}' (Status: {st})"
+    else:
+        music_info = "No track currently queued"
 
-    # System memory & load
+    # Memory & load
     mem_info = "Unknown"
     try:
         with open("/proc/meminfo", "r") as f:
@@ -153,26 +176,7 @@ SYSTEM_PROMPT_BASE = (
     "Always address the user as 'Sir'. Keep responses concise (typically 1 to 2 sentences) "
     "so they are punchy and natural for text-to-speech delivery. "
     "Use natural punctuation, ellipses (...), and em-dashes (—) to give the speech engine breathing room.\n\n"
-    "You have real-time access to Sir's Arch Linux system and Stark Rice environment.\n\n"
-    "Crucial Music Formatting Rule:\n"
-    "Whenever Sir asks about music, or commands any playback action (pause, play, resume, status, skip, what song is this), "
-    "you MUST ALWAYS explicitly include both the track name and artist in the exact phrasing format: '<Track Name> by <Artist>'.\n"
-    "- When pausing: state that you are pausing '<Track Name> by <Artist>'.\n"
-    "- When resuming or playing: state that you are resuming '<Track Name> by <Artist>'.\n"
-    "- When asked what is playing or about the track: state that we are listening to '<Track Name> by <Artist>'.\n\n"
-    "If Sir asks to perform a system action, include an action tag at the very end of your response, for example:\n"
-    "[ACTION: music_pause]\n"
-    "[ACTION: music_play]\n"
-    "[ACTION: music_toggle]\n"
-    "[ACTION: music_next]\n"
-    "[ACTION: music_prev]\n"
-    "[ACTION: volume_up]\n"
-    "[ACTION: volume_down]\n"
-    "[ACTION: volume_mute]\n"
-    "[ACTION: open_zenify]\n"
-    "[ACTION: lock_screen]\n"
-    "[ACTION: reload_ui]\n"
-    "Do not recite action tags in dialogue; append them cleanly at the end."
+    "You have real-time access to Sir's Arch Linux system and Stark Rice environment."
 )
 
 
@@ -218,6 +222,17 @@ def execute_action(action_name):
             subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif act == "volume_mute":
             subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif act.startswith("volume_set_"):
+            pct_str = act.replace("volume_set_", "")
+            subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{pct_str}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif act in ("open_browser", "open_brave"):
+            subprocess.Popen(["setsid", "brave-origin"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif act in ("open_terminal", "open_kitty"):
+            subprocess.Popen(["setsid", "kitty"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif act in ("open_files", "open_thunar"):
+            subprocess.Popen(["setsid", "thunar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif act in ("open_code", "open_vscode"):
+            subprocess.Popen(["setsid", "code"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif act in ("open_zenify", "open_spotify"):
             p = os.path.expanduser("~/.config/stark-rice/stark_spotify.py")
             subprocess.Popen(["python3", p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -231,12 +246,11 @@ def execute_action(action_name):
 
 
 def clean_text_for_speech(text):
-    """Removes action tags, code blocks, and markdown asterisks for natural vocalization."""
-    # Remove action tags
+    """Removes action tags, code blocks, and markdown for natural vocalization."""
     t = re.sub(r"\[ACTION:\s*[a-zA-Z0-9_-]+\]", "", text)
-    # Remove markdown formatting
-    t = re.sub(r"[*_~`#]", "", t)
-    # Condense excess whitespace
+    t = re.sub(r"```[\s\S]*?```", "", t)  # strip code blocks
+    t = re.sub(r"[*_~`#>]", "", t)        # strip markdown symbols
+    t = re.sub(r"\|.*?\|", "", t)         # strip tables
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
@@ -251,7 +265,6 @@ def speak_text(text, wait=False):
     if not spoken_text:
         return
 
-    # Terminate prior speech so voices don't overlap
     if current_speech_proc and current_speech_proc.poll() is None:
         try:
             current_speech_proc.terminate()
@@ -301,14 +314,121 @@ def speak_text(text, wait=False):
         print(f"{GRAY}[Voice Warning: {e}]{RESET}")
 
 
-def query_jarvis(user_input, history):
-    """Sends query to NVIDIA NIM Nemotron with live telemetry."""
-    telemetry = get_telemetry()
-    system_prompt = f"{SYSTEM_PROMPT_BASE}\n\n{telemetry}"
+# ==============================================================================
+# SPEED 1: REFLEX TIER (Sub-millisecond Direct Execution)
+# ==============================================================================
+def classify_reflex(user_input):
+    """
+    Evaluates query against fast reflex heuristics.
+    Returns (is_reflex, reply_text, action_name).
+    """
+    t = user_input.lower().strip()
+    title, artist, is_playing = get_current_music()
+    track_phrase = f"'{title}' by {artist}" if (title and artist) else "current track"
+
+    # 1. Volume Controls
+    if re.search(r"\b(volume up|louder|increase volume|turn it up)\b", t):
+        return True, "Increasing master volume, Sir.", "volume_up"
+    if re.search(r"\b(volume down|quieter|decrease volume|lower volume|turn it down)\b", t):
+        return True, "Lowering master volume, Sir.", "volume_down"
     
+    m_vol = re.search(r"\b(?:set )?volume (?:to )?(\d{1,3})%?\b", t)
+    if m_vol:
+        val = max(0, min(100, int(m_vol.group(1))))
+        return True, f"Adjusting master volume to {val} percent, Sir.", f"volume_set_{val}"
+        
+    if re.search(r"\b(mute|unmute|silence|toggle mute)\b", t):
+        return True, "Toggling master audio mute, Sir.", "volume_mute"
+
+    # 2. Media Playback Controls
+    if re.search(r"\b(pause|stop music|hold track|pause song|pause music)\b", t):
+        return True, f"Pausing {track_phrase}, Sir.", "music_pause"
+    if re.search(r"\b(resume|play|unpause|start music|continue track)\b", t):
+        return True, f"Resuming playback of {track_phrase}, Sir.", "music_play"
+    if re.search(r"\b(next song|next track|skip song|skip track|skip)\b", t):
+        return True, "Skipping to the next track, Sir.", "music_next"
+    if re.search(r"\b(previous song|prev track|previous track|play previous|go back)\b", t):
+        return True, "Returning to the previous track, Sir.", "music_prev"
+    if re.search(r"\b(toggle music|play pause|toggle playback)\b", t):
+        return True, f"Toggling media playback, Sir.", "music_toggle"
+    if re.search(r"\b(what song is this|what are we listening to|what track is this|current song|now playing)\b", t):
+        if title:
+            return True, f"We are currently listening to {track_phrase}, Sir.", None
+        return True, "There is currently no audio track loaded in the Stark Player, Sir.", None
+
+    # 3. Fast Application Launchers
+    if re.search(r"\b(open|launch) (brave|browser|internet|web)\b", t):
+        return True, "Launching Brave Origin, Sir.", "open_browser"
+    if re.search(r"\b(open|launch) (terminal|kitty|console)\b", t):
+        return True, "Opening terminal window, Sir.", "open_terminal"
+    if re.search(r"\b(open|launch) (files|thunar|file manager|explorer)\b", t):
+        return True, "Opening file manager, Sir.", "open_files"
+    if re.search(r"\b(open|launch) (code|vscode|editor)\b", t):
+        return True, "Opening Visual Studio Code, Sir.", "open_code"
+    if re.search(r"\b(open|launch) (spotify|zenify|music player)\b", t):
+        return True, "Opening Stark Music Console, Sir.", "open_zenify"
+    if re.search(r"\b(lock screen|lock system|lock pc)\b", t):
+        return True, "Engaging workstation security lock, Sir.", "lock_screen"
+    if re.search(r"\b(reload ui|restart desktop|reload waybar)\b", t):
+        return True, "Re-initializing the Stark desktop environment, Sir.", "reload_ui"
+
+    # 4. Instant Telemetry & Greetings
+    if re.search(r"\b(what time is it|current time|what is the time|tell me the time)\b", t):
+        t_now = time.strftime("%I:%M %p")
+        return True, f"It is currently {t_now}, Sir.", None
+    if re.search(r"\b(what day is it|what is the date|today's date|current date)\b", t):
+        d_now = time.strftime("%A, %B %d, %Y")
+        return True, f"Today is {d_now}, Sir.", None
+    if re.search(r"\b(thank you|thanks jarvis|thanks|cheers)\b", t):
+        return True, "Always a pleasure to be of service, Sir.", None
+    if re.search(r"\b(hello|hi jarvis|hey jarvis|greetings)\b", t):
+        return True, "At your command, Sir. What can I do for you today?", None
+
+    return False, None, None
+
+
+# ==============================================================================
+# SPEED 2: ANTIGRAVITY AGENTIC TIER (Autonomous Reasoning & Tool Execution)
+# ==============================================================================
+def query_antigravity(user_input, history, telemetry):
+    """Executes multi-step agentic query using the Antigravity engine."""
+    prompt = (
+        f"You are J.A.R.V.I.S., Tony Stark's personal artificial intelligence system operating on Sir's Arch Linux Hyprland workstation.\n"
+        f"System Telemetry:\n{telemetry}\n\n"
+        f"Sir's Request: \"{user_input}\"\n\n"
+        f"Instructions:\n"
+        f"1. Fulfill Sir's request directly using available system tools (run_command, hyprctl, file inspection, etc.) as needed.\n"
+        f"2. Maintain your persona: refined, polite, unflappable British demeanor. Always address Sir.\n"
+        f"3. Provide a clear, natural spoken summary (1-2 sentences) at the start for vocal delivery, followed by any diagnostic detail if relevant.\n"
+        f"4. If you need Sir to execute an action (e.g. toggle playback, lock screen), append [ACTION: <action_name>] at the end."
+    )
+    
+    cmd = [
+        "agy",
+        "--dangerously-skip-permissions",
+        "--model", config.get("antigravity_model", "gemini-3.8-flash-low"),
+        "--effort", config.get("antigravity_effort", "low"),
+        "--disable-slash-commands",
+        "-p", prompt
+    ]
+    
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+    if proc.returncode == 0 and proc.stdout.strip():
+        raw_reply = proc.stdout.strip()
+        action_match = re.search(r"\[ACTION:\s*([a-zA-Z0-9_-]+)\]", raw_reply)
+        action = action_match.group(1) if action_match else None
+        clean_reply = re.sub(r"\[ACTION:\s*[a-zA-Z0-9_-]+\]", "", raw_reply).strip()
+        return clean_reply, action
+    else:
+        err = proc.stderr.strip() if proc.stderr else f"Exit code {proc.returncode}"
+        raise RuntimeError(f"Antigravity execution failed: {err}")
+
+
+def query_nim(user_input, history, telemetry):
+    """Fallback query to NVIDIA NIM Nemotron."""
+    system_prompt = f"{SYSTEM_PROMPT_BASE}\n\n{telemetry}"
     messages = [{"role": "system", "content": system_prompt}]
-    # Append recent conversation history
-    messages.extend(history[-10:])
+    messages.extend(history[-8:])
     messages.append({"role": "user", "content": user_input})
     
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -327,37 +447,72 @@ def query_jarvis(user_input, history):
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = json.loads(resp.read().decode("utf-8"))
         raw_reply = data["choices"][0]["message"]["content"].strip()
-        
-        # Parse action tag if present
         action_match = re.search(r"\[ACTION:\s*([a-zA-Z0-9_-]+)\]", raw_reply)
         action = action_match.group(1) if action_match else None
         clean_reply = re.sub(r"\[ACTION:\s*[a-zA-Z0-9_-]+\]", "", raw_reply).strip()
-        
         return clean_reply, action
+
+
+def query_jarvis(user_input, history, ack_callback=None):
+    """
+    Main Two-Speed Dispatcher:
+    - Tier 1: Instant Reflex Classifier (<5ms)
+    - Tier 2: Antigravity Agent with Immediate Acoustic Acknowledgment
+    """
+    # 1. Check Reflex Tier (Speed 1)
+    is_reflex, reflex_reply, reflex_action = classify_reflex(user_input)
+    if is_reflex:
+        if reflex_action:
+            execute_action(reflex_action)
+        return reflex_reply, reflex_action
+
+    # 2. Agentic Tier (Speed 2)
+    # A. Acoustic Acknowledgment
+    ack_text = random.choice(ACK_PHRASES)
+    if ack_callback:
+        try:
+            ack_callback(ack_text)
+        except Exception:
+            pass
+
+    telemetry = get_telemetry()
+
+    # B. Run Primary Agent (Antigravity)
+    if agent_backend == "antigravity":
+        try:
+            return query_antigravity(user_input, history, telemetry)
+        except Exception as e:
+            print(f"{GRAY}[Antigravity Warning: {e}, attempting NIM fallback]{RESET}")
+            if nim_api_key:
+                try:
+                    return query_nim(user_input, history, telemetry)
+                except Exception as e2:
+                    print(f"{RED}[NIM Fallback Error: {e2}]{RESET}")
+            return f"Apologies, Sir. Primary agent encountered an interruption: {e}", None
+
+    # Fallback directly to NIM if backend configured as nim
+    if nim_api_key:
+        try:
+            return query_nim(user_input, history, telemetry)
+        except Exception as e:
+            return f"Apologies, Sir. Communication anomaly detected: {e}", None
+
+    return "Apologies, Sir. System backends are currently unreachable.", None
 
 
 def print_banner():
     reverb_str = f"{GREEN}ON{RESET}" if spatial_reverb else f"{GRAY}OFF{RESET}"
     voice_str = f"{GREEN}ACTIVE{RESET}" if voice_enabled else f"{RED}MUTED{RESET}"
     
-    w_path = os.path.expanduser("~/.config/stark-rice/weather_cache.json")
-    weather_summary = "Ready"
-    if os.path.exists(w_path):
-        try:
-            with open(w_path, "r", encoding="utf-8") as f:
-                w = json.load(f)
-                weather_summary = f"{w.get('temp_c')}°C {w.get('condition')}"
-        except Exception:
-            pass
-
     banner = f"""{CYAN}{BOLD}
   ╔═══════════════════════════════════════════════════════════════════════════╗
   ║                        J . A . R . V . I . S .                            ║
   ║                 Just A Rather Very Intelligent System                     ║
-  ║  Brain: NVIDIA Nemotron 3.5 Bolt       •  Voice: Deepgram Pluto (Aura-2)  ║
-  ║  Speed: {playback_speed:.2f}x  •  Acoustic: {reverb_str}  •  Voice: {voice_str}  •  Status: {weather_summary:<14} ║
+  ║  Architecture: Two-Speed Brain (Antigravity Agent + Fast Reflex Core)    ║
+  ║  Speed: {playback_speed:.2f}x  •  Acoustic: {reverb_str}  •  Voice: {voice_str}  •  Model: {antigravity_model:<14} ║
   ║  Controls: 'speed <val>' • 'reverb' • 'mute' • 'clear' • 'repeat' • 'q'  ║
   ╚═══════════════════════════════════════════════════════════════════════════╝{RESET}"""
+  # Print the banner
     print(banner)
 
 
@@ -450,72 +605,22 @@ def interactive_session():
             print(f"{GRAY}[Spatial room reverb is now {status}.]{RESET}\n")
             continue
 
-        if lower.startswith("speed "):
-            try:
-                val = float(lower.split(" ", 1)[1])
-                playback_speed = max(0.7, min(2.5, val))
-                print(f"{GRAY}[Playback speed set to {playback_speed:.2f}x.]{RESET}\n")
-            except ValueError:
-                print(f"{GRAY}[Usage example: speed 1.15]{RESET}\n")
-            continue
-
-        if lower in ("faster", "speed up"):
-            playback_speed = min(2.5, round(playback_speed + 0.05, 2))
-            print(f"{GRAY}[Playback speed increased to {playback_speed:.2f}x.]{RESET}\n")
-            continue
-
-        if lower in ("slower", "slow down"):
-            playback_speed = max(0.7, round(playback_speed - 0.05, 2))
-            print(f"{GRAY}[Playback speed decreased to {playback_speed:.2f}x.]{RESET}\n")
-            continue
-            
-        if lower in ("replay", "repeat"):
-            if last_response_text:
-                print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} Replaying audio...\n")
-                speak_text(last_response_text, wait=False)
-            else:
-                print(f"{GRAY}[No previous response to replay, Sir.]{RESET}\n")
-            continue
-
-        if lower in ("status", "diagnostics", "telemetry"):
+        if lower == "status":
             show_system_status()
             continue
 
-        if lower in ("song", "track", "music", "playing", "now playing"):
-            m_path = os.path.expanduser("~/.config/stark-rice/music_state.json")
-            if os.path.exists(m_path):
-                try:
-                    with open(m_path, "r", encoding="utf-8") as f:
-                        m = json.load(f)
-                        t = m.get("title")
-                        a = m.get("artist")
-                        st = "playing" if m.get("is_playing") else "currently paused"
-                        if t and a:
-                            reply = f"We are listening to '{t}' by {a}, which is {st}, Sir."
-                        else:
-                            reply = "No active audio track is currently loaded, Sir."
-                except Exception:
-                    reply = "Unable to read current audio telemetry, Sir."
-            else:
-                reply = "No active audio track is currently loaded, Sir."
-            print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {reply}\n")
-            speak_text(reply, wait=False)
-            continue
+        def cli_ack(ack_phrase):
+            print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {ack_phrase}")
+            speak_text(ack_phrase, wait=False)
 
         try:
-            print(f"{GRAY}Thinking...{RESET}", end="\r", flush=True)
-            reply, action = query_jarvis(user_input, history)
+            reply, action = query_jarvis(user_input, history, ack_callback=cli_ack)
             last_response_text = reply
             history.append({"role": "user", "content": user_input})
             history.append({"role": "assistant", "content": reply})
             
-            # Clear thinking indicator
-            print(" " * 24, end="\r")
-            
-            # Show reply
             print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {reply}\n")
             
-            # Speak first: if an action is pending, wait for vocal delivery to finish before executing
             if action:
                 speak_text(reply, wait=True)
                 time.sleep(0.12)
@@ -537,8 +642,9 @@ def main():
 
     if "--help" in args or "-h" in args:
         print("Usage:")
-        print("  jarvis                    # Launch interactive J.A.R.V.I.S. HUD")
+        print("  jarvis                    # Launch interactive J.A.R.V.I.S. CLI")
         print("  jarvis 'your question'    # One-shot command & voice response")
+        print("  jarvis --toggle           # Toggle floating HUD window")
         print("  jarvis --boot             # Play startup system greeting")
         return
 
@@ -546,7 +652,6 @@ def main():
         user_query = " ".join(args)
         reply, action = query_jarvis(user_query, [])
         print(f"{CYAN}{BOLD}J.A.R.V.I.S.{RESET} {GRAY}›{RESET} {reply}")
-        # Wait for TTS to finish vocalization before executing system action
         speak_text(reply, wait=True)
         if action:
             time.sleep(0.12)
